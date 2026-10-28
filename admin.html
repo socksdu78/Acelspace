@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AcelSpace — Administration</title>
+    <meta name="description"
+        content="Panneau d'administration sécurisé pour la gestion des précommandes et du catalogue AcelSpace.">
+    <link rel="icon" id="dynamic-favicon" type="image/png" href="/favicon.ico">
+    <link rel="apple-touch-icon" id="dynamic-apple-icon" href="/favicon.ico">
+    <meta property="og:image" id="og-image" content="/favicon.ico">
+    <script type="application/ld+json" id="schema-organization">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "AcelSpace",
+      "url": "https://boutique.acelspace.fr",
+      "logo": "https://boutique.acelspace.fr/favicon.ico"
+    }
+    </script>
+    <link rel="stylesheet" href="/src/style.css">
+    <style>
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .logo-container {
+            width: 64px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @media (min-width: 640px) {
+            .logo-container {
+                width: 80px;
+                height: 44px;
+            }
+        }
+    </style>
+    <script type="module" src="/src/admin.js"></script>
+</head>
+
+<body
+    class="bg-blueprint-grid text-slate-900 font-sans min-h-screen p-3 sm:p-6 md:p-8 flex flex-col items-center antialiased selection:bg-sky-200"
+    x-data="adminApp()">
+
+    <!-- Toast Notification -->
+    <div x-show="toast.show" x-cloak x-transition:enter="transition ease-out duration-200 transform"
+        x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+        x-transition:leave="transition ease-in duration-150 transform"
+        x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-4"
+        class="fixed bottom-5 right-5 z-50 px-4 py-3 bg-card-bg card-border shadow-2xl flex items-center gap-3 font-bold text-xs sm:text-sm">
+        <span x-text="toast.type === 'success' ? '✅' : '⚠️'"></span>
+        <span x-text="toast.message" class="text-slate-900"></span>
+    </div>
+
+    <!-- MAIN CONTAINER -->
+    <div class="w-full max-w-[1680px] my-auto flex flex-col gap-6 pb-32 md:pb-8">
+
+        <!-- HEADER -->
+        <header class="bg-card-bg card-border p-3 sm:p-5 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+            <div class="flex items-center gap-4">
+                <a href="/" class="logo-container shrink-0 hover:opacity-80 transition-opacity"
+                    title="Retour à la boutique">
+                    <img src="/api/logo/image" alt="Logo AcelSpace" class="w-full h-full object-contain">
+                </a>
+                <div class="flex items-center gap-2 sm:gap-3">
+                    <span
+                        class="font-black text-xl sm:text-2xl tracking-tight uppercase text-slate-900">AcelSpace</span>
+                    <span
+                        class="px-2.5 py-0.5 bg-slate-900 text-white font-black text-[10px] sm:text-xs uppercase pill-border">ADMIN
+                        PANEL</span>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                <a href="/"
+                    class="px-3 sm:px-4 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors">
+                    ← RETOUR AU SITE
+                </a>
+
+                <template x-if="authenticated">
+                    <button @click="logout()"
+                        class="px-3 sm:px-4 py-2 bg-red-100 text-red-900 border-2 border-red-900 rounded-md font-bold text-xs uppercase hover:bg-red-900 hover:text-white transition-colors cursor-pointer">
+                        DÉCONNEXION
+                    </button>
+                </template>
+            </div>
+        </header>
+
+        <!-- LOADING SPINNER (Initial Check) -->
+        <template x-if="checkingAuth">
+            <div class="bg-card-bg card-border p-12 text-center my-12 space-y-3">
+                <div class="text-3xl animate-spin inline-block">⚙️</div>
+                <p class="font-black text-sm uppercase text-slate-800">Vérification de l'accès...</p>
+            </div>
+        </template>
+
+        <!-- ── LOGIN VIEW ──────────────────────────────────────────────────────── -->
+        <template x-if="!authenticated && !checkingAuth">
+            <div class="w-full max-w-md mx-auto my-12 bg-card-bg card-border p-6 sm:p-8 space-y-6 shadow-2xl">
+                <div class="text-center space-y-2">
+                    <div
+                        class="w-12 h-12 bg-slate-900 text-white rounded-full flex items-center justify-center mx-auto text-xl font-bold">
+                        🔒
+                    </div>
+                    <h1 class="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900">Connexion Admin
+                    </h1>
+                    <p class="text-xs text-slate-600 font-semibold">Saisissez votre mot de passe pour gérer les
+                        précommandes et le catalogue.</p>
+                </div>
+
+                <!-- Error banner -->
+                <template x-if="loginError">
+                    <div
+                        class="p-3 bg-red-100 border-2 border-red-900 rounded-md text-red-950 text-xs font-bold flex items-center gap-2">
+                        <span>⚠️</span>
+                        <span x-text="loginError"></span>
+                    </div>
+                </template>
+
+                <form @submit.prevent="login()" class="space-y-4">
+                    <div class="space-y-1.5">
+                        <label class="block text-[11px] font-black uppercase text-slate-700">Mot de passe
+                            administrateur</label>
+                        <input type="password" x-model="password" required placeholder="••••••••••••"
+                            class="w-full px-3 py-2.5 text-sm font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    </div>
+
+                    <button type="submit" :disabled="loginLoading"
+                        class="w-full py-3 bg-slate-900 text-white font-black text-xs sm:text-sm uppercase pill-border hover:bg-slate-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                        <template x-if="loginLoading">
+                            <span class="inline-block animate-spin">⏳</span>
+                        </template>
+                        <span x-text="loginLoading ? 'VÉRIFICATION...' : 'SE CONNECTER'"></span>
+                    </button>
+                </form>
+            </div>
+        </template>
+
+        <!-- ── DASHBOARD VIEW (AUTHENTICATED) ──────────────────────────────────── -->
+        <template x-if="authenticated && !checkingAuth">
+            <div class="space-y-6">
+
+                <!-- NAVIGATION TABS -->
+                <div class="hidden md:flex flex-wrap items-center gap-2 sm:gap-3 border-b-2 border-slate-900 pb-2">
+                    <button @click="activeTab = 'precommandes'"
+                        :class="activeTab === 'precommandes' ? 'bg-slate-900 text-white' : 'bg-card-bg text-slate-900 hover:bg-slate-200'"
+                        class="flex-1 sm:flex-none justify-center px-3 sm:px-5 py-2.5 pill-border font-black text-xs sm:text-sm uppercase transition-colors flex items-center gap-2 cursor-pointer">
+                        <span>📦 Précommandes</span>
+                        <span class="px-2 py-0.5 rounded-full text-[10px]"
+                            :class="activeTab === 'precommandes' ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'"
+                            x-text="stats.totalOrders"></span>
+                    </button>
+
+                    <button @click="activeTab = 'catalogue'"
+                        :class="activeTab === 'catalogue' ? 'bg-slate-900 text-white' : 'bg-card-bg text-slate-900 hover:bg-slate-200'"
+                        class="flex-1 sm:flex-none justify-center px-3 sm:px-5 py-2.5 pill-border font-black text-xs sm:text-sm uppercase transition-colors flex items-center gap-2 cursor-pointer">
+                        <span>🏷️ Catalogue Produits</span>
+                        <span class="px-2 py-0.5 rounded-full text-[10px]"
+                            :class="activeTab === 'catalogue' ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'"
+                            x-text="products.length"></span>
+                    </button>
+                </div>
+
+                <nav aria-label="Navigation principale"
+                    class="flex md:hidden fixed bottom-0 left-0 w-full bg-slate-800 text-white z-50 py-3 justify-around shadow-lg">
+                    <button @click="activeTab = 'precommandes'"
+                        :class="activeTab === 'precommandes' ? 'text-white' : 'text-slate-300'"
+                        :aria-current="activeTab === 'precommandes' ? 'page' : null"
+                        class="flex flex-col items-center gap-1 font-black text-xs uppercase cursor-pointer">
+                        <span aria-hidden="true">📦</span>
+                        <span>Précommandes</span>
+                        <span class="text-[10px]" x-text="stats.totalOrders"></span>
+                    </button>
+                    <button @click="activeTab = 'catalogue'"
+                        :class="activeTab === 'catalogue' ? 'text-white' : 'text-slate-300'"
+                        :aria-current="activeTab === 'catalogue' ? 'page' : null"
+                        class="flex flex-col items-center gap-1 font-black text-xs uppercase cursor-pointer">
+                        <span aria-hidden="true">🏷️</span>
+                        <span>Catalogue</span>
+                        <span class="text-[10px]" x-text="products.length"></span>
+                    </button>
+                </nav>
+
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <!-- TAB 1 : PRÉCOMMANDES                                           -->
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <div x-show="activeTab === 'precommandes'" class="space-y-6">
+
+                    <!-- PRE-ORDERS CONTROL PANEL CARD -->
+                    <div
+                        class="bg-card-bg card-border p-4 sm:p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                        <div class="flex flex-wrap items-center gap-3.5">
+                            <span class="font-black text-xs uppercase tracking-wider text-slate-700">PRÉCOMMANDES
+                                :</span>
+                            <template x-if="statusOuvert">
+                                <span
+                                    class="px-3 py-1 bg-card-bg border-2 border-slate-900 text-slate-900 font-black text-xs uppercase pill-border">
+                                    OUVERTES
+                                </span>
+                            </template>
+                            <template x-if="!statusOuvert">
+                                <span
+                                    class="px-3 py-1 bg-slate-900 text-white font-black text-xs uppercase pill-border">
+                                    FERMÉES
+                                </span>
+                            </template>
+
+                            <button @click="confirmToggleStatus()" :disabled="statusLoading"
+                                class="px-4 py-1.5 bg-white pill-border font-black text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer"
+                                x-text="statusOuvert ? 'FERMER LES PRÉCOMMANDES' : 'ROUVRIR LES PRÉCOMMANDES'">
+                            </button>
+                        </div>
+
+                        <!-- Edit closure message -->
+                        <form @submit.prevent="saveMessage()"
+                            class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto flex-1 lg:max-w-xl justify-end">
+                            <input type="text" x-model="messageFermeture" maxlength="200"
+                                placeholder="Message de fermeture (ex: Les précommandes sont terminées. Merci !)"
+                                class="w-full sm:flex-1 px-3 py-1.5 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900"
+                                title="Message affiché aux visiteurs lorsque les précommandes sont fermées">
+                            <button type="submit" :disabled="statusLoading"
+                                class="w-full sm:w-auto px-3 py-1.5 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 disabled:opacity-50 transition-colors whitespace-nowrap cursor-pointer">
+                                ENREGISTRER LE MESSAGE
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- STATS SUMMARY CARDS -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+                        <!-- Total Orders -->
+                        <div class="bg-card-bg card-border p-5 space-y-1">
+                            <span class="text-[11px] font-black uppercase text-slate-600 tracking-wider">Total
+                                Précommandes</span>
+                            <div class="text-3xl sm:text-4xl font-black text-slate-900" x-text="stats.totalOrders">
+                            </div>
+                            <div class="text-[11px] font-bold text-slate-600 flex gap-2 flex-wrap pt-1">
+                                <span class="px-2 py-0.5 bg-amber-100 border border-amber-900 rounded"
+                                    x-text="'En attente: ' + stats.byStatus.en_attente"></span>
+                                <span class="px-2 py-0.5 bg-sky-100 border border-sky-900 rounded"
+                                    x-text="'Confirmées: ' + stats.byStatus.confirmee"></span>
+                                <span class="px-2 py-0.5 bg-emerald-100 border border-emerald-900 rounded"
+                                    x-text="'Livrées: ' + stats.byStatus.livree"></span>
+                            </div>
+                        </div>
+
+                        <!-- Clients Uniques -->
+                        <div class="bg-card-bg card-border p-5 space-y-1">
+                            <span class="text-[11px] font-black uppercase text-slate-600 tracking-wider">Clients
+                                Uniques</span>
+                            <div class="text-3xl sm:text-4xl font-black text-slate-900"
+                                x-text="stats.totalUniqueClients || 0"></div>
+                            <p class="text-[11px] font-bold text-slate-600 pt-1">Identifiants clients distincts
+                                (C-001...)</p>
+                        </div>
+
+                        <!-- Total Estimated Revenue -->
+                        <div class="bg-card-bg card-border p-5 space-y-1">
+                            <span class="text-[11px] font-black uppercase text-slate-600 tracking-wider">Montant Total
+                                Estimé</span>
+                            <div class="text-3xl sm:text-4xl font-black text-slate-900"
+                                x-text="formatPrice(stats.totalRevenue)"></div>
+                            <p class="text-[11px] font-bold text-slate-600 pt-1">Valeur estimée des commandes actives
+                            </p>
+                        </div>
+
+                        <!-- Products & Sizes Breakdown -->
+                        <div class="bg-card-bg card-border p-5 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase text-slate-600 tracking-wider">Détail
+                                    Produit & Taille</span>
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Hors annulations</span>
+                            </div>
+                            <div class="flex flex-wrap gap-1.5 pt-1 max-h-28 overflow-y-auto">
+                                <template x-for="item in stats.recapByProductSize"
+                                    :key="item.produit + '-' + item.taille">
+                                    <span
+                                        class="px-2.5 py-1 bg-white pill-border text-xs font-black text-slate-900 flex items-center gap-1.5"
+                                        :title="item.count + ' commande(s) • Total: ' + formatPrice(item.total_prix)">
+                                        <span
+                                            x-text="item.produit + (item.taille && item.taille !== 'Taille unique' ? ' ' + item.taille : '')"></span>
+                                        <span class="px-1.5 py-0.2 bg-slate-900 text-white rounded text-[10px]"
+                                            x-text="': ' + item.quantite"></span>
+                                    </span>
+                                </template>
+                                <template x-if="!stats.recapByProductSize || stats.recapByProductSize.length === 0">
+                                    <span class="text-xs text-slate-500 italic">Aucune commande active</span>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- FILTERS & ACTIONS BAR -->
+                    <div
+                        class="bg-card-bg card-border p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                        <!-- Search & Filter inputs -->
+                        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            <!-- Search -->
+                            <div class="relative flex-1 sm:w-72">
+                                <input type="text" x-model="searchQuery" @input.debounce.300ms="fetchPrecommandes()"
+                                    placeholder="Recherche (nom, email, tel, C-001, ID)..."
+                                    class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                            </div>
+
+                            <!-- Status Filter -->
+                            <select x-model="filterStatut" @change="fetchPrecommandes()"
+                                class="px-3 py-2 text-xs font-bold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer">
+                                <option value="all">Tous les statuts</option>
+                                <template x-for="status in orderStatuses" :key="status.value">
+                                    <option :value="status.value" x-text="status.label"></option>
+                                </template>
+                            </select>
+
+                            <!-- Product Filter -->
+                            <select x-model="filterProduit" @change="fetchPrecommandes()"
+                                class="px-3 py-2 text-xs font-bold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer">
+                                <option value="all">Tous les produits</option>
+                                <template x-for="p in products" :key="p.id">
+                                    <option :value="p.name" x-text="p.name"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Action buttons -->
+                        <div class="flex items-center gap-2.5 w-full md:w-auto justify-end flex-wrap">
+                            <button @click="fetchPrecommandes()"
+                                class="px-3.5 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Actualiser la liste">
+                                <span>🔄</span> Actualiser
+                            </button>
+
+                            <button @click="exportCSV()"
+                                class="px-3.5 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Télécharger la liste détaillée des précommandes au format CSV (avec Client ID, Email, Téléphone)">
+                                <span>📥</span> Exporter CSV
+                            </button>
+
+                            <button @click="exportRecap()"
+                                class="px-3.5 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Télécharger le récapitulatif groupé par produit et taille">
+                                <span>📊</span> Exporter Récap
+                            </button>
+
+                            <button @click="exportPDF()"
+                                class="px-3.5 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Ouvrir la liste de remise imprimable (format A4 Noir et Blanc)">
+                                <span>📄</span> Exporter PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ORDERS TABLE CARD -->
+                    <div class="bg-card-bg card-border overflow-hidden shadow-sm">
+                        <div class="w-full overflow-x-auto pb-4">
+                            <table class="w-full text-left text-xs text-slate-900 border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 min-w-[180px] whitespace-nowrap">#CMD</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 whitespace-nowrap">CLIENT #</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 whitespace-nowrap">Date</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 w-40">Nom</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 w-48">Contact</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 whitespace-nowrap">Produit</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 text-center w-24 whitespace-nowrap">Taille</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 text-center whitespace-nowrap">Qté</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 whitespace-nowrap">Total</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 text-center whitespace-nowrap">Consent.</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 w-48 whitespace-nowrap">Suivi commande</th>
+                                        <th class="px-2 py-2 border-b-2 border-slate-900 text-right w-56 whitespace-nowrap">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y-2 divide-slate-900 font-semibold">
+                                    <template x-for="group in groupedOrders" :key="group.commande_ref">
+                                        <template x-for="(order, orderIndex) in group.lines" :key="order.id">
+                                            <tr :class="orderIndex === 0 ? 'border-t-4 border-slate-900' : ''"
+                                                class="hover:bg-sky-50/60 transition-colors">
+                                                <td class="px-2 py-2 font-black text-slate-900 border-l-4 border-slate-900">
+                                                    <div x-show="orderIndex === 0" class="space-y-1.5">
+                                                        <div class="whitespace-nowrap" x-text="group.commande_ref"></div>
+                                                        <select :value="group.commonOrderStatus === 'mixed' ? '' : group.commonOrderStatus"
+                                                            @change="updateAllOrderStatuses(order, $event)"
+                                                            :class="getStatusColorClasses(group.commonOrderStatus === 'mixed' ? '' : group.commonOrderStatus)"
+                                                            class="w-full min-w-[160px] text-xs py-1 px-2 rounded border font-bold cursor-pointer"
+                                                            aria-label="Modifier le statut de toute la commande">
+                                                            <option value="">TOUTE LA COMMANDE</option>
+                                                            <template x-for="status in orderStatuses" :key="status.value">
+                                                                <option :value="status.value" x-text="status.label"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                </td>
+                                                <td class="px-2 py-2 whitespace-nowrap">
+                                                    <span
+                                                        class="px-2.5 py-1 bg-white pill-border font-mono text-[10px] font-black text-slate-900 inline-block shadow-xs"
+                                                        x-text="formatClientId(order.client_id)"
+                                                        :title="'ID unique du client : ' + formatClientId(order.client_id)"></span>
+                                                </td>
+                                                <td class="px-2 py-2 text-slate-700 whitespace-nowrap"
+                                                    x-text="formatDate(order.date_creation)"></td>
+                                                <td class="px-2 py-2 w-40 max-w-40 whitespace-normal break-words">
+                                                    <div class="font-black uppercase text-slate-900" x-text="order.nom"></div>
+                                                    <div x-show="order.student_first_name || order.student_last_name"
+                                                        class="mt-0.5 font-medium normal-case text-slate-500"
+                                                        x-text="`Enfant : ${[order.student_first_name, order.student_last_name].filter(Boolean).join(' ')}`"></div>
+                                                </td>
+                                                <td class="px-2 py-2 w-48 max-w-48 whitespace-normal">
+                                                    <span
+                                                        class="px-2 py-1 bg-white pill-border font-mono text-xs text-slate-900 inline-flex flex-col break-all">
+                                                        <span x-text="order.email || order.contact || '-' "></span>
+                                                        <span x-show="order.telephone" x-text="order.telephone"></span>
+                                                    </span>
+                                                </td>
+                                                <td class="px-2 py-2 font-bold text-slate-900 whitespace-nowrap">
+                                                    <div x-text="order.produit"></div>
+                                                    <template x-if="hasPersonalization(order.personnalisation)">
+                                                        <div class="text-[10px] text-amber-900 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-300 mt-1 inline-block"
+                                                            x-text="'Perso : ' + order.personnalisation"></div>
+                                                    </template>
+                                                </td>
+                                                <td class="px-2 py-2 text-center whitespace-nowrap"><span
+                                                        class="inline-flex min-w-12 items-center justify-center px-3 py-1.5 bg-sky-100 border-2 border-slate-900 rounded-md text-sm font-black uppercase text-slate-950 shadow-sm"
+                                                        x-text="order.taille"></span></td>
+                                                <td class="px-2 py-2 font-black text-center whitespace-nowrap" x-text="order.quantite"></td>
+                                                <td class="px-2 py-2 font-black text-slate-900 whitespace-nowrap"
+                                                    x-text="formatPrice(order.prix_estime)"></td>
+                                                <td class="px-2 py-2 text-center whitespace-nowrap">
+                                                    <span
+                                                        class="inline-flex items-center justify-center w-6 h-6 rounded bg-emerald-100 border-2 border-emerald-800 text-emerald-900 font-bold text-xs cursor-help"
+                                                        :title="'Consentement RGPD accordé le ' + formatDate(order.date_consentement || order.date_creation)">✓</span>
+                                                </td>
+                                                <td class="px-2 py-2">
+                                                    <select :value="order.status"
+                                                        @change="updateOrderStatus(order, $event.target.value)"
+                                                        :class="getStatusColorClasses(order.status)"
+                                                        class="w-full min-w-[160px] text-xs py-1 px-2 rounded border focus:outline-none cursor-pointer">
+                                                            <template x-for="status in orderStatuses" :key="status.value">
+                                                                <option :value="status.value" x-text="status.label"></option>
+                                                            </template>
+                                                    </select>
+                                                </td>
+                                                <td class="px-2 py-2 w-56 whitespace-nowrap">
+                                                    <div class="flex items-center justify-end gap-2">
+                                                        <div class="w-8 flex-shrink-0 flex items-center justify-center">
+                                                            <button @click="openDeleteModal(order)"
+                                                                class="group/trash p-1.5 bg-red-50 text-red-800 border-2 border-red-700 rounded hover:bg-red-700 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+                                                                title="Supprimer cette ligne">
+                                                                <svg class="w-4 h-4 fill-current text-red-800 group-hover/trash:text-white" viewBox="0 0 24 24" aria-hidden="true">
+                                                                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+
+                                                        <div class="w-32 flex-shrink-0 flex items-center justify-end">
+                                                            <button @click="openDeleteClientModal(order)"
+                                                                class="w-full px-2 py-1 bg-red-100 text-red-900 border-2 border-red-900 rounded font-black text-[10px] uppercase hover:bg-red-900 hover:text-white transition-colors cursor-pointer whitespace-nowrap text-center"
+                                                                title="Supprimer ce client et TOUTES ses précommandes (droit à l'effacement RGPD)">
+                                                                EFFACER CLIENT
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </template>
+                                    <template x-if="precommandes.length === 0 && !loading">
+                                        <tr>
+                                            <td colspan="12" class="p-12 text-center text-slate-600 space-y-2 whitespace-nowrap">
+                                                <div class="text-3xl">📭</div>
+                                                <p class="font-black uppercase text-sm">Aucune précommande trouvée</p>
+                                                <p class="text-xs">Aucun enregistrement ne correspond aux filtres
+                                                    actuels.</p>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <!-- TAB 2 : CATALOGUE PRODUITS                                     -->
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <div x-show="activeTab === 'catalogue'" class="space-y-6">
+
+                    <!-- Actions Bar -->
+                    <div
+                        class="bg-card-bg card-border p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div>
+                            <h2 class="font-black text-lg sm:text-xl uppercase tracking-tight text-slate-900">Catalogue
+                                des Produits</h2>
+                            <p class="text-xs text-slate-600 font-semibold">Gérez les articles de la boutique en direct.
+                                Les modifications sont visibles instantanément.</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button @click="fetchProducts()"
+                                class="px-3.5 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Actualiser le catalogue">
+                                <span>🔄</span> Actualiser
+                            </button>
+                            <button @click="openProductModal()"
+                                class="px-4 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer">
+                                <span>➕</span> AJOUTER UN PRODUIT
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- LOGO UPLOAD -->
+                    <div
+                        class="bg-card-bg card-border p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4 w-full">
+                        <div class="flex items-center gap-4 flex-1 min-w-0">
+                            <div
+                                class="w-16 h-12 bg-white card-border p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                                <img id="logoPreview" src="/api/logo/image" alt="Logo actuel"
+                                    class="max-w-full max-h-full object-contain">
+                            </div>
+                            <div class="space-y-1 flex-1 min-w-0">
+                                <p class="font-black text-xs uppercase text-slate-900">Logo du club</p>
+                                <p class="text-[11px] text-slate-600 font-semibold">JPEG, PNG ou WebP — 2 Mo max.
+                                    Remplace le logo sur tout le site.</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                            <input type="file" id="logoFileInput" accept="image/jpeg,image/png,image/webp"
+                                @change="previewLogo($event)"
+                                class="w-full min-w-0 sm:flex-1 text-xs text-slate-700 file:mr-3 file:py-1.5 file:px-3 file:pill-border file:bg-white file:font-black file:text-xs file:uppercase file:cursor-pointer hover:file:bg-slate-900 hover:file:text-white file:transition-colors">
+                            <button @click="uploadLogo()" :disabled="logoUploading"
+                                class="w-full sm:w-auto px-4 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap">
+                                <span
+                                    x-text="logoUploading ? 'ENVOI...' : '📤 METTRE À JOUR'"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Products Table Card -->
+                    <div class="bg-card-bg card-border max-w-full overflow-hidden shadow-sm">
+                        <div class="w-full overflow-x-auto max-w-full pb-4">
+                            <table class="w-full text-left text-xs text-slate-900 border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
+                                        <th class="p-3.5 border-b-2 border-slate-900 w-16 text-center whitespace-nowrap">Ordre</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 w-20 whitespace-nowrap">Visuel</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 whitespace-nowrap">Nom & Description</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 whitespace-nowrap">Prix Fixe</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 whitespace-nowrap">Tailles</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 text-center whitespace-nowrap">Statut</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 text-center whitespace-nowrap">Vedette</th>
+                                        <th class="p-3.5 border-b-2 border-slate-900 text-right whitespace-nowrap">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y-2 divide-slate-900 font-semibold">
+                                    <template x-for="(product, idx) in products" :key="product.id">
+                                        <tr :class="product.actif === 1 ? 'hover:bg-sky-50/60' : 'bg-slate-100/70 opacity-75 hover:bg-slate-100'"
+                                            class="transition-colors">
+                                            <!-- Ordre boutons -->
+                                            <td class="p-3 text-center whitespace-nowrap">
+                                                <div class="inline-flex flex-col gap-0.5">
+                                                    <button @click="moveProductOrder(product, 'up')"
+                                                        :disabled="idx === 0"
+                                                        class="w-6 h-5 bg-white border border-slate-900 rounded text-[10px] font-bold hover:bg-slate-900 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                                                        title="Monter">▲</button>
+                                                    <button @click="moveProductOrder(product, 'down')"
+                                                        :disabled="idx === products.length - 1"
+                                                        class="w-6 h-5 bg-white border border-slate-900 rounded text-[10px] font-bold hover:bg-slate-900 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                                                        title="Descendre">▼</button>
+                                                </div>
+                                            </td>
+
+                                            <!-- Miniature -->
+                                            <td class="p-3 whitespace-nowrap">
+                                                <div
+                                                    class="w-14 h-14 bg-white border-2 border-slate-900 rounded p-1 flex items-center justify-center overflow-hidden">
+                                                    <img :src="product.image || 'https://placehold.co/100x100/f6f3eb/111827?text=Produit'"
+                                                        :alt="product.name"
+                                                        class="max-w-full max-h-full object-contain rounded"
+                                                        onerror="this.src='https://placehold.co/100x100/f6f3eb/111827?text=Produit'">
+                                                </div>
+                                            </td>
+
+                                            <!-- Nom & Description -->
+                                            <td class="p-3 whitespace-nowrap">
+                                                <div class="font-black text-sm uppercase text-slate-900"
+                                                    x-text="product.name"></div>
+                                                <div class="text-[11px] text-slate-600 line-clamp-2 max-w-sm"
+                                                    x-text="product.description || '-'"></div>
+                                                <template x-if="product.requires_customization === 1">
+                                                    <span class="mt-1 inline-block px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-300 rounded text-[10px] font-black uppercase"
+                                                        x-text="`✏️ Perso : ${product.customization_fields || 'Informations à personnaliser'}`">
+                                                    </span>
+                                                </template>
+                                            </td>
+
+                                            <!-- Prix -->
+                                            <td class="p-3 font-black text-sm text-slate-900 whitespace-nowrap"
+                                                x-text="formatPrice(product.price)"></td>
+
+                                            <!-- Tailles Chips -->
+                                            <td class="p-3 whitespace-nowrap">
+                                                <div class="flex flex-wrap gap-1 max-w-xs">
+                                                    <template x-for="sz in product.sizes" :key="sz">
+                                                        <span
+                                                            class="px-2 py-0.5 bg-white pill-border text-[10px] font-black uppercase text-slate-900"
+                                                            x-text="sz"></span>
+                                                    </template>
+                                                </div>
+                                            </td>
+
+                                            <!-- Statut Actif/Archivé -->
+                                            <td class="p-3 text-center whitespace-nowrap">
+                                                <button @click="toggleActif(product)"
+                                                    :class="product.actif === 1 ? 'bg-emerald-100 text-emerald-900 border-emerald-900 hover:bg-emerald-200' : 'bg-slate-200 text-slate-700 border-slate-700 hover:bg-slate-300'"
+                                                    class="px-2.5 py-1 text-[10px] font-black uppercase border-2 rounded-md transition-colors cursor-pointer"
+                                                    :title="product.actif === 1 ? 'Cliquer pour archiver' : 'Cliquer pour réactiver'">
+                                                    <span x-text="product.actif === 1 ? '✓ Actif' : 'Archivé'"></span>
+                                                </button>
+                                            </td>
+                                            <!-- Vedette Toggle -->
+                                            <td class="p-3 text-center whitespace-nowrap">
+                                                <button @click="toggleFeatured(product)"
+                                                    :class="product.featured === 1 ? 'bg-amber-100 text-amber-950 border-amber-900 shadow-xs' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-900'"
+                                                    class="px-2.5 py-1 text-[10px] font-black uppercase border-2 rounded-md transition-colors cursor-pointer"
+                                                    :title="product.featured === 1 ? 'Produit vedette (affiché en haut de la boutique). Cliquer pour retirer.' : 'Définir comme produit vedette'">
+                                                    <span
+                                                        x-text="product.featured === 1 ? '⭐ En vedette' : 'Définir vedette'"></span>
+                                                </button>
+                                            </td>
+
+                                            <!-- Actions -->
+                                            <td class="p-3 text-right whitespace-nowrap space-x-1.5">
+                                                <button @click="openPriceTiersModal(product)"
+                                                    class="px-2.5 py-1.5 bg-amber-100 text-amber-950 border-2 border-amber-900 rounded font-black text-[11px] uppercase hover:bg-amber-900 hover:text-white transition-colors cursor-pointer"
+                                                    title="Gérer les grilles et paliers de prix dégressifs">
+                                                    📊 Grille / Paliers
+                                                </button>
+
+                                                <button @click="openProductModal(product)"
+                                                    class="px-2.5 py-1.5 bg-white text-slate-900 border-2 border-slate-900 rounded font-black text-[11px] uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer"
+                                                    title="Modifier le produit">
+                                                    ✏️ Modifier
+                                                </button>
+
+                                                <button @click="openDeleteProductModal(product)"
+                                                    class="p-1.5 bg-red-100 text-red-900 border-2 border-red-900 rounded hover:bg-red-900 hover:text-white transition-colors cursor-pointer"
+                                                    title="Supprimer ou archiver">
+                                                    🗑️
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+
+                                    <!-- Empty State -->
+                                    <template x-if="products.length === 0 && !productsLoading">
+                                        <tr>
+                                            <td colspan="8" class="p-12 text-center text-slate-600 space-y-2 whitespace-nowrap">
+                                                <div class="text-3xl">🏷️</div>
+                                                <p class="font-black uppercase text-sm">Aucun produit dans le catalogue
+                                                </p>
+                                                <p class="text-xs">Cliquez sur « Ajouter un produit » pour créer votre
+                                                    premier article.</p>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </template>
+
+    </div>
+
+    <!-- ── PRICE TIERS MODAL ──────────────────────────────────────────────── -->
+    <div x-show="priceTiersModalOpen" x-cloak @keydown.escape.window="closePriceTiersModal()"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto"
+        x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100">
+
+        <div @click.away="closePriceTiersModal()"
+            class="bg-card-bg card-border w-full max-w-2xl p-6 space-y-5 shadow-2xl relative my-8 max-h-[92vh] overflow-y-auto">
+            <button @click="closePriceTiersModal()"
+                class="absolute top-3 right-3 w-7 h-7 bg-white pill-border font-black text-xs hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">✕</button>
+
+            <div class="space-y-1">
+                <h3 class="text-lg font-black uppercase text-slate-900 flex items-center gap-2">
+                    <span>📊</span> Grille Tarifaire Dégressive
+                </h3>
+                <p class="text-xs text-slate-600 font-semibold"
+                    x-text="priceTiersProduct ? 'Produit : ' + priceTiersProduct.name : ''"></p>
+            </div>
+
+            <!-- Error Banner -->
+            <template x-if="priceTiersError">
+                <div class="p-3 bg-red-100 border-2 border-red-900 rounded-md text-red-950 text-xs font-bold flex items-center gap-2">
+                    <span>⚠️</span>
+                    <span x-text="priceTiersError"></span>
+                </div>
+            </template>
+
+            <!-- Loading State -->
+            <template x-if="priceTiersLoading">
+                <div class="py-8 text-center space-y-2">
+                    <div class="text-2xl animate-spin inline-block">⚙️</div>
+                    <p class="font-black text-xs uppercase text-slate-700">Chargement de la grille...</p>
+                </div>
+            </template>
+
+            <template x-if="!priceTiersLoading">
+                <div class="space-y-5">
+                    <!-- Step 1 & 2: Download & Upload Controls -->
+                    <div class="p-4 bg-white card-border space-y-3">
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div>
+                                <h4 class="font-black text-xs uppercase text-slate-900">1. Modèle d'importation</h4>
+                                <p class="text-[11px] text-slate-600 font-medium">Téléchargez le modèle Excel XLSX pour remplir vos paliers.</p>
+                            </div>
+                            <button @click="downloadTiersTemplate()"
+                                class="px-3.5 py-1.5 bg-white pill-border font-black text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer shrink-0">
+                                <span>📥</span> Télécharger Template XLSX
+                            </button>
+                        </div>
+
+                        <div class="border-t border-slate-200 pt-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div>
+                                <h4 class="font-black text-xs uppercase text-slate-900">2. Importer une grille (XLSX)</h4>
+                                <p class="text-[11px] text-slate-600 font-medium">Téléversez le fichier XLSX renseigné pour appliquer les nouveaux paliers.</p>
+                            </div>
+                            <div class="flex items-center gap-2 w-full sm:w-auto">
+                                <input type="file" accept=".xlsx" @change="uploadTiersFile($event)" :disabled="priceTiersUploading"
+                                    class="text-xs text-slate-700 file:mr-2 file:py-1 file:px-2.5 file:pill-border file:bg-white file:font-black file:text-xs file:uppercase file:cursor-pointer hover:file:bg-slate-900 hover:file:text-white file:transition-colors">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Current Active Tier Info -->
+                    <div class="p-4 bg-amber-50 border-2 border-amber-900 rounded-lg flex items-center justify-between gap-3">
+                        <div>
+                            <span class="text-[10px] font-black uppercase text-amber-900 tracking-wider">Prix Actuel Calculé</span>
+                            <div class="text-xl font-black text-slate-900"
+                                x-text="priceTiersCurrentPrice ? formatPrice(priceTiersCurrentPrice.unit_price) : 'Aucun prix défini (Achat bloqué)'"></div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] font-black uppercase text-amber-900 tracking-wider">Cumul Commandé</span>
+                            <div class="text-base font-black text-slate-900"
+                                x-text="(priceTiersCurrentPrice ? priceTiersCurrentPrice.qty_total : 0) + ' unité(s)'"></div>
+                        </div>
+                    </div>
+
+                    <!-- Current Tiers Table -->
+                    <div class="space-y-2">
+                        <h4 class="font-black text-xs uppercase text-slate-900">Paliers de Prix Actuels</h4>
+                        <div class="border-2 border-slate-900 rounded-lg overflow-hidden bg-white">
+                            <div class="w-full overflow-x-auto pb-4">
+                                <table class="w-full text-left text-xs">
+                                    <thead>
+                                        <tr class="bg-slate-900 text-white font-black uppercase text-[10px]">
+                                            <th class="p-2.5 whitespace-nowrap">Qté Min</th>
+                                            <th class="p-2.5 whitespace-nowrap">Qté Max</th>
+                                            <th class="p-2.5 text-right whitespace-nowrap">Prix Unitaire</th>
+                                            <th class="p-2.5 text-center whitespace-nowrap">Statut Palier</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-200 font-semibold">
+                                        <template x-for="tier in priceTiers" :key="tier.id">
+                                            <tr :class="priceTiersCurrentPrice && priceTiersCurrentPrice.tier_id === tier.id ? 'bg-emerald-100 font-bold' : ''">
+                                                <td class="p-2.5 whitespace-nowrap" x-text="tier.qty_min"></td>
+                                                <td class="p-2.5 whitespace-nowrap" x-text="tier.qty_max ? tier.qty_max : 'Illimité (dernier)'"></td>
+                                                <td class="p-2.5 text-right font-black whitespace-nowrap" x-text="formatPrice(tier.unit_price)"></td>
+                                                <td class="p-2.5 text-center whitespace-nowrap">
+                                                    <span x-show="priceTiersCurrentPrice && priceTiersCurrentPrice.tier_id === tier.id"
+                                                        class="px-2 py-0.5 bg-emerald-900 text-white rounded text-[10px] font-black uppercase">
+                                                        ✓ PALIER ACTIF
+                                                    </span>
+                                                    <span x-show="!priceTiersCurrentPrice || priceTiersCurrentPrice.tier_id !== tier.id"
+                                                        class="text-slate-400 text-[10px]">
+                                                        -
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                        <template x-if="priceTiers.length === 0">
+                                            <tr>
+                                                <td colspan="4" class="p-6 text-center text-slate-500 italic whitespace-nowrap">
+                                                    Aucune grille tarifaire n'est définie pour ce produit. Bouton « PRÉCOMMANDER » bloqué.
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload History Snapshot -->
+                    <div class="space-y-2 pt-2 border-t border-slate-200" x-show="priceTiersHistory.length > 0">
+                        <h4 class="font-black text-xs uppercase text-slate-900">Historique des Importations (10 derniers)</h4>
+                        <div class="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                            <template x-for="h in priceTiersHistory" :key="h.id">
+                                <div class="p-2 bg-white card-border text-[11px] flex items-center justify-between">
+                                    <span class="font-semibold text-slate-700" x-text="'Import du ' + formatDate(h.uploaded_at)"></span>
+                                    <span class="font-black text-slate-900" x-text="h.tiers.length + ' palier(s)'"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                </div>
+            </template>
+
+            <div class="flex items-center justify-end pt-3 border-t-2 border-slate-900">
+                <button type="button" @click="closePriceTiersModal()"
+                    class="px-4 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 transition-colors cursor-pointer">
+                    FERMER
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── PRODUCT ADD / EDIT MODAL ─────────────────────────────────────────── -->
+    <div x-show="productModalOpen" x-cloak @keydown.escape.window="closeProductModal()"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto"
+        x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100">
+
+        <div @click.away="closeProductModal()"
+            class="bg-card-bg card-border w-full max-w-lg p-6 space-y-4 shadow-2xl relative my-8 max-h-[92vh] overflow-y-auto">
+            <button @click="closeProductModal()"
+                class="absolute top-3 right-3 w-7 h-7 bg-white pill-border font-black text-xs hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">✕</button>
+
+            <div class="space-y-1">
+                <h3 class="text-lg font-black uppercase text-slate-900"
+                    x-text="productForm.id ? 'Modifier le produit' : 'Nouveau produit'"></h3>
+                <p class="text-xs text-slate-600 font-semibold">Renseignez les caractéristiques du produit. Les données
+                    sont validées et sécurisées.</p>
+            </div>
+
+            <!-- Error banner -->
+            <template x-if="productFormError">
+                <div
+                    class="p-3 bg-red-100 border-2 border-red-900 rounded-md text-red-950 text-xs font-bold flex items-center gap-2">
+                    <span>⚠️</span>
+                    <span x-text="productFormError"></span>
+                </div>
+            </template>
+
+            <form @submit.prevent="saveProduct()" class="space-y-4">
+                <!-- Nom -->
+                <div class="space-y-1">
+                    <label class="block text-[11px] font-black uppercase text-slate-700">Nom du produit <span
+                            class="text-red-600">*</span></label>
+                    <input type="text" x-model="productForm.name" required maxlength="60"
+                        placeholder="ex: Sweat à capuche AcelSpace"
+                        class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                </div>
+
+                <!-- Prix & Vedette Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                    <!-- Prix -->
+                    <div class="space-y-1">
+                        <label class="block text-[11px] font-black uppercase text-slate-700">Prix de base (€) <span
+                                class="text-red-600">*</span></label>
+                        <input type="number" step="0.01" min="0.01" max="100000" x-model="productForm.price" required
+                            placeholder="ex: 25.00"
+                            class="w-full px-3 py-2 text-xs font-black bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    </div>
+
+                    <!-- En vedette Checkbox -->
+                    <div class="flex items-center gap-2 pb-2">
+                        <input type="checkbox" id="productFeatured" x-model="productForm.featured"
+                            class="w-4 h-4 rounded border-2 border-slate-900 text-slate-900 focus:ring-0 cursor-pointer">
+                        <label for="productFeatured" class="text-xs font-black uppercase text-slate-800 cursor-pointer">
+                            ⭐ Produit vedette
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="productRequiresCustomization" x-model="productForm.requires_customization"
+                        @change="onProductCustomizationToggle()"
+                        class="w-4 h-4 rounded border-2 border-slate-900 text-slate-900 focus:ring-0 cursor-pointer">
+                    <label for="productRequiresCustomization" class="text-xs font-black uppercase text-slate-800 cursor-pointer">
+                        ✏️ Personnalisation obligatoire
+                    </label>
+                </div>
+                <div x-show="productForm.requires_customization" x-cloak class="flex items-center gap-2">
+                    <input type="checkbox" id="productAllowNoCustomization" x-model="productForm.allow_no_customization"
+                        class="w-4 h-4 rounded border-2 border-slate-900 text-slate-900 focus:ring-0 cursor-pointer">
+                    <label for="productAllowNoCustomization" class="text-xs font-black text-slate-800 cursor-pointer">
+                        Autoriser l'option "Sans personnalisation"
+                    </label>
+                </div>
+                <div x-show="productForm.requires_customization" x-cloak class="space-y-1">
+                    <label for="productCustomizationFields" class="block text-[11px] font-black uppercase text-slate-700">
+                        Champs à remplir par le client <span class="text-red-600">*</span>
+                    </label>
+                    <input id="productCustomizationFields" type="text" x-model="productForm.customization_fields"
+                        :required="productForm.requires_customization" maxlength="120"
+                        placeholder="NOM, Prénom, Numéro..."
+                        class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                </div>
+
+                <!-- Description -->
+                <div class="space-y-1">
+                    <label class="block text-[11px] font-black uppercase text-slate-700">Description</label>
+                    <textarea x-model="productForm.description" rows="3"
+                        placeholder="Description de l'article pour les visiteurs..."
+                        class="w-full px-3 py-2 text-xs font-semibold bg-white card-border focus:outline-none focus:ring-2 focus:ring-slate-900"></textarea>
+                </div>
+
+                <!-- Tailles (Chips management) -->
+                <div class="space-y-2">
+                    <label class="block text-[11px] font-black uppercase text-slate-700">Tailles disponibles <span
+                            class="text-red-600">*</span></label>
+
+                    <!-- Chips Display -->
+                    <div class="flex flex-wrap gap-1.5 p-2.5 bg-white card-border min-h-12 items-center">
+                        <template x-for="(sz, sIdx) in productForm.sizes" :key="sIdx">
+                            <span
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-card-bg pill-border text-xs font-black uppercase text-slate-900">
+                                <span x-text="sz"></span>
+                                <button type="button" @click="removeSize(sIdx)"
+                                    class="hover:text-red-600 font-bold ml-1 cursor-pointer"
+                                    title="Supprimer cette taille">✕</button>
+                            </span>
+                        </template>
+                    </div>
+
+                    <!-- Add Size Input -->
+                    <div class="flex gap-2">
+                        <input type="text" x-model="sizeInput" @keydown.enter.prevent="addSize()"
+                            placeholder="ex: S, M, XL, 32 Go, ou Taille unique" maxlength="30"
+                            class="flex-1 px-3 py-1.5 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                        <button type="button" @click="addSize()"
+                            class="px-3.5 py-1.5 bg-white pill-border font-black text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">
+                            + AJOUTER
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Image Upload & Preview -->
+                <div class="space-y-2">
+                    <label class="block text-[11px] font-black uppercase text-slate-700">Image du produit (JPEG, PNG ou
+                        WebP - 2 Mo max)</label>
+
+                    <div class="flex items-center gap-4">
+                        <!-- Preview Thumbnail -->
+                        <div
+                            class="w-20 h-20 bg-white card-border p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                            <template x-if="productForm.imagePreview">
+                                <img :src="productForm.imagePreview" alt="Aperçu upload"
+                                    class="max-w-full max-h-full object-contain rounded">
+                            </template>
+                            <template x-if="!productForm.imagePreview && productForm.currentImage">
+                                <img :src="productForm.currentImage" alt="Image actuelle"
+                                    class="max-w-full max-h-full object-contain rounded">
+                            </template>
+                            <template x-if="!productForm.imagePreview && !productForm.currentImage">
+                                <span class="text-2xl text-slate-400">🖼️</span>
+                            </template>
+                        </div>
+
+                        <!-- File Input -->
+                        <div class="flex-1 space-y-1">
+                            <input type="file" accept="image/jpeg,image/png,image/webp"
+                                @change="handleImageSelect($event)"
+                                class="text-xs text-slate-700 file:mr-3 file:py-1.5 file:px-3 file:pill-border file:bg-white file:font-black file:text-xs file:uppercase file:cursor-pointer hover:file:bg-slate-900 hover:file:text-white file:transition-colors">
+                            <p class="text-[10px] text-slate-500 font-semibold">Signature magique vérifiée. Pas de SVG.
+                                Nom aléatoire sécurisé.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="block text-[11px] font-black uppercase text-slate-700">Seconde image du produit (facultatif)</label>
+
+                    <div class="flex items-center gap-4">
+                        <div class="w-20 h-20 bg-white card-border p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                            <template x-if="productForm.image_url_2">
+                                <img :src="productForm.image_url_2" alt="Aperçu de la seconde image"
+                                    class="max-w-full max-h-full object-contain rounded">
+                            </template>
+                            <template x-if="!productForm.image_url_2">
+                                <span class="text-2xl text-slate-400">🖼️</span>
+                            </template>
+                        </div>
+
+                        <div class="flex-1 space-y-1">
+                            <label class="inline-block px-3 py-1.5 bg-white pill-border font-black text-xs uppercase text-slate-900 cursor-pointer hover:bg-slate-900 hover:text-white transition-colors">
+                                CHOISIR UN FICHIER
+                                <input type="file" accept="image/*" class="hidden"
+                                    @change="handleImageUpload($event, 'image_url_2')">
+                            </label>
+                            <p class="text-[10px] text-slate-600 font-semibold"
+                                x-text="productForm.imageUrl2FileName || 'Aucun fichier choisi'"></p>
+                            <p class="text-[10px] text-slate-500 font-semibold">JPEG, PNG ou WebP — 2 Mo max. Signature magique vérifiée. Pas de SVG. Nom aléatoire sécurisé.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label for="productDetailTableImage" class="block text-[11px] font-black uppercase text-slate-700">
+                        Image du guide des tailles / formats (facultatif)
+                    </label>
+                    <input id="productDetailTableImage" type="text" maxlength="1000"
+                        x-model="productForm.detail_table_image" placeholder="URL de l’image ou chemin /uploads/..."
+                        class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+
+                    <div class="flex items-center gap-4">
+                        <div class="w-20 h-20 bg-white card-border p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                            <template x-if="productForm.detail_table_image">
+                                <img :src="productForm.detail_table_image" alt="Aperçu du guide des tailles / formats"
+                                    class="max-w-full max-h-full object-contain rounded">
+                            </template>
+                            <template x-if="!productForm.detail_table_image">
+                                <span class="text-2xl text-slate-400">🖼️</span>
+                            </template>
+                        </div>
+
+                        <div class="flex-1 space-y-1">
+                            <label class="inline-block px-3 py-1.5 bg-white pill-border font-black text-xs uppercase text-slate-900 cursor-pointer hover:bg-slate-900 hover:text-white transition-colors">
+                                TÉLÉVERSER UNE IMAGE
+                                <input type="file" accept="image/jpeg,image/png,image/webp" class="hidden"
+                                    @change="handleImageUpload($event, 'detail_table_image')">
+                            </label>
+                            <p class="text-[10px] text-slate-600 font-semibold"
+                                x-text="productForm.detailTableImageFileName || 'Aucun fichier choisi'"></p>
+                            <p class="text-[10px] text-slate-500 font-semibold">JPEG, PNG ou WebP — 2 Mo max. Téléversement via la route sécurisée existante.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex items-center gap-3 justify-end pt-3 border-t-2 border-slate-900">
+                    <button type="button" @click="closeProductModal()"
+                        class="px-4 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">
+                        ANNULER
+                    </button>
+                    <button type="submit" :disabled="productSaving"
+                        class="px-5 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 disabled:opacity-50 transition-colors flex items-center gap-2 cursor-pointer">
+                        <template x-if="productSaving">
+                            <span class="inline-block animate-spin">⏳</span>
+                        </template>
+                        <span x-text="productSaving ? 'ENREGISTREMENT...' : 'ENREGISTRER LE PRODUIT'"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── DELETE PRODUCT MODAL ─────────────────────────────────────────────── -->
+    <div x-show="deleteProductModalOpen" x-cloak @keydown.escape.window="closeDeleteProductModal()"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+        x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100">
+
+        <div @click.away="closeDeleteProductModal()"
+            class="bg-card-bg card-border w-full max-w-md p-6 space-y-5 shadow-2xl relative">
+            <button @click="closeDeleteProductModal()"
+                class="absolute top-3 right-3 w-7 h-7 bg-white pill-border font-black text-xs hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">✕</button>
+
+            <div class="space-y-2">
+                <h3 class="text-lg font-black uppercase text-slate-900 flex items-center gap-2">
+                    <span>⚠️</span> Suppression du produit
+                </h3>
+
+                <!-- If product has linked orders -->
+                <template x-if="deleteProductHasOrders">
+                    <div class="space-y-3">
+                        <p class="text-xs text-slate-800 font-semibold leading-relaxed">
+                            Le produit <strong x-text="productToDelete ? productToDelete.name : ''"></strong> est
+                            associé à <strong class="text-red-700"
+                                x-text="deleteProductOrderCount + ' précommande(s)'"></strong>.
+                        </p>
+                        <div
+                            class="p-3 bg-amber-100 border-2 border-amber-900 rounded-lg text-amber-950 text-xs font-bold leading-normal">
+                            🔒 <strong>Suppression définitive impossible :</strong> Pour garantir l'intégrité des
+                            récapitulatifs, factures et exportations PDF, un produit déjà commandé ne peut pas être
+                            supprimé.
+                        </div>
+                        <p class="text-xs text-slate-700 font-semibold">
+                            Vous pouvez l'<strong>archiver</strong> : il sera masqué immédiatement de la boutique
+                            publique tout en préservant l'historique.
+                        </p>
+                    </div>
+                </template>
+
+                <!-- If product has NO orders -->
+                <template x-if="!deleteProductHasOrders">
+                    <div class="space-y-2">
+                        <p class="text-xs text-slate-700 font-semibold leading-relaxed">
+                            Voulez-vous vraiment supprimer définitivement le produit <strong
+                                x-text="productToDelete ? productToDelete.name : ''"></strong> ?
+                        </p>
+                        <p class="text-[11px] text-red-700 font-bold bg-red-100 p-2 rounded border border-red-300">
+                            Cette action supprimera le produit de la base ainsi que son image sur le serveur.
+                        </p>
+                    </div>
+                </template>
+
+                <template x-if="deleteProductError && !deleteProductHasOrders">
+                    <div class="p-2.5 bg-red-100 border border-red-700 rounded text-red-900 text-xs font-bold"
+                        x-text="deleteProductError"></div>
+                </template>
+            </div>
+
+            <div class="flex items-center gap-3 justify-end pt-2 flex-wrap">
+                <button @click="closeDeleteProductModal()"
+                    class="px-4 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">
+                    ANNULER
+                </button>
+
+                <template x-if="deleteProductHasOrders">
+                    <button @click="archiveProductInstead()"
+                        class="px-4 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 transition-colors cursor-pointer">
+                        📦 ARCHIVER LE PRODUIT
+                    </button>
+                </template>
+
+                <template x-if="!deleteProductHasOrders">
+                    <button @click="deleteProduct()" :disabled="deleteProductLoading"
+                        class="px-4 py-2 bg-red-600 text-white pill-border font-black text-xs uppercase hover:bg-red-800 disabled:opacity-50 transition-colors cursor-pointer">
+                        <span x-text="deleteProductLoading ? 'SUPPRESSION...' : 'SUPPRIMER DÉFINITIVEMENT'"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── DELETE ORDER CONFIRMATION MODAL ──────────────────────────────────── -->
+    <div x-show="deleteModalOpen" x-cloak @keydown.escape.window="closeDeleteModal()"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+        x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100">
+
+        <div @click.away="closeDeleteModal()"
+            class="bg-card-bg card-border w-full max-w-md p-6 space-y-5 shadow-2xl relative">
+            <button @click="closeDeleteModal()"
+                class="absolute top-3 right-3 w-7 h-7 bg-white pill-border font-black text-xs hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">✕</button>
+
+            <div class="space-y-2">
+                <h3 class="text-lg font-black uppercase text-slate-900 flex items-center gap-2">
+                    <span>⚠️</span> Confirmer la suppression
+                </h3>
+                <p class="text-xs text-slate-700 font-semibold leading-relaxed">
+                    Voulez-vous vraiment supprimer la précommande <strong
+                        x-text="'#' + (orderToDelete ? orderToDelete.id : '')"></strong> de <strong
+                        x-text="orderToDelete ? orderToDelete.nom : ''"></strong> (<span
+                        x-text="orderToDelete ? orderToDelete.produit : ''"></span>) ?
+                </p>
+                <p class="text-[11px] text-red-700 font-bold bg-red-100 p-2 rounded border border-red-300">
+                    Cette action est irréversible. Si c'est la seule commande du client, le client sera également
+                    nettoyé.
+                </p>
+            </div>
+
+            <div class="flex items-center gap-3 justify-end pt-2">
+                <button @click="closeDeleteModal()"
+                    class="px-4 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">
+                    ANNULER
+                </button>
+                <button @click="deleteOrder()" :disabled="deleteLoading"
+                    class="px-4 py-2 bg-red-600 text-white pill-border font-black text-xs uppercase hover:bg-red-800 disabled:opacity-50 transition-colors cursor-pointer">
+                    <span x-text="deleteLoading ? 'SUPPRESSION...' : 'SUPPRIMER LA COMMANDE'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── DELETE CLIENT CONFIRMATION MODAL (RGPD) ────────────────────────── -->
+    <div x-show="deleteClientModalOpen" x-cloak @keydown.escape.window="closeDeleteClientModal()"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+        x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100">
+
+        <div @click.away="closeDeleteClientModal()"
+            class="bg-card-bg card-border w-full max-w-md p-6 space-y-5 shadow-2xl relative">
+            <button @click="closeDeleteClientModal()"
+                class="absolute top-3 right-3 w-7 h-7 bg-white pill-border font-black text-xs hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">✕</button>
+
+            <div class="space-y-2">
+                <h3 class="text-lg font-black uppercase text-red-950 flex items-center gap-2">
+                    <span>🛡️</span> Supprimer ce client (RGPD)
+                </h3>
+                <p class="text-xs text-slate-800 font-semibold leading-relaxed">
+                    Voulez-vous supprimer définitivement le client <strong class="font-black"
+                        x-text="clientToDelete ? clientToDelete.formattedId : ''"></strong> (<span
+                        x-text="clientToDelete ? clientToDelete.nom : ''"></span> - <span class="font-mono"
+                        x-text="clientToDelete ? (clientToDelete.email || clientToDelete.contact) : ''"></span><span
+                        x-text="clientToDelete && clientToDelete.telephone && clientToDelete.telephone !== '-' ? ' • ' + clientToDelete.telephone : ''"></span>)
+                    ?
+                </p>
+                <p
+                    class="text-[11px] text-red-900 font-bold bg-red-100 p-3 rounded-lg border-2 border-red-900 leading-normal">
+                    ⚠️ <strong>Droit à l'effacement :</strong> Cette action supprimera <strong>définitivement</strong>
+                    le profil client ainsi que <strong>toutes ses précommandes associées</strong> (<span
+                        x-text="(clientToDelete ? clientToDelete.count : 0) + ' commande(s)'"></span>).
+                </p>
+            </div>
+
+            <div class="flex items-center gap-3 justify-end pt-2">
+                <button @click="closeDeleteClientModal()"
+                    class="px-4 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">
+                    ANNULER
+                </button>
+                <button @click="deleteClient()" :disabled="deleteClientLoading"
+                    class="px-4 py-2 bg-red-700 text-white pill-border font-black text-xs uppercase hover:bg-red-900 disabled:opacity-50 transition-colors cursor-pointer">
+                    <span x-text="deleteClientLoading ? 'EFFACEMENT...' : 'SUPPRIMER CE CLIENT'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── TOGGLE PRE-ORDERS STATUS CONFIRMATION MODAL ───────────────────── -->
+    <div x-show="confirmToggleModalOpen" x-cloak @keydown.escape.window="closeConfirmToggleModal()"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+        x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100">
+
+        <div @click.away="closeConfirmToggleModal()"
+            class="bg-card-bg card-border w-full max-w-md p-6 space-y-5 shadow-2xl relative">
+            <button @click="closeConfirmToggleModal()"
+                class="absolute top-3 right-3 w-7 h-7 bg-white pill-border font-black text-xs hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">✕</button>
+
+            <div class="space-y-2">
+                <h3 class="text-lg font-black uppercase text-slate-900 flex items-center gap-2">
+                    <span>⚠️</span> Confirmation du statut
+                </h3>
+                <p class="text-xs text-slate-700 font-semibold leading-relaxed"
+                    x-text="statusOuvert ? 'Voulez-vous vraiment FERMER les précommandes aux visiteurs ? Les visiteurs verront le message de fermeture et ne pourront plus soumettre de commandes.' : 'Voulez-vous vraiment ROUVRIR les précommandes ? Les visiteurs pourront à nouveau soumettre des commandes.'">
+                </p>
+            </div>
+
+            <!-- Error Banner in Modal -->
+            <template x-if="statusToggleError">
+                <div
+                    class="p-3 bg-red-100 border-2 border-red-900 rounded text-red-950 text-xs font-bold flex items-center gap-2">
+                    <span>⚠️</span>
+                    <span x-text="statusToggleError"></span>
+                </div>
+            </template>
+
+            <div class="flex items-center gap-3 justify-end pt-2">
+                <button @click="closeConfirmToggleModal()"
+                    class="px-4 py-2 bg-white pill-border font-bold text-xs uppercase hover:bg-slate-900 hover:text-white transition-colors cursor-pointer">
+                    ANNULER
+                </button>
+                <button @click="executeToggleStatus()" :disabled="statusLoading"
+                    class="px-4 py-2 bg-slate-900 text-white pill-border font-black text-xs uppercase hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer">
+                    <span
+                        x-text="statusLoading ? 'MISE À JOUR...' : (statusOuvert ? 'CONFIRMER LA FERMETURE' : 'CONFIRMER L\'OUVERTURE')"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-6 flex flex-wrap justify-center gap-4 text-xs font-semibold text-slate-700">
+        <a href="/mentions-legales.html" class="hover:underline">Mentions légales</a>
+        <a href="/politique-confidentialite.html" class="hover:underline">Politique de confidentialité</a>
+    </footer>
+
+</body>
+
+</html>
