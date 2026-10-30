@@ -36,8 +36,13 @@ export function getTierProgress(product_id) {
     const current = db.prepare(`
         SELECT COALESCE(SUM(quantite), 0) as quantity
         FROM precommandes
-        WHERE product_id = ? AND statut != 'annulee'
-    `).get(product_id);
+        WHERE (product_id = ?
+               OR (product_id IS NULL AND produit = (
+                   SELECT name FROM products WHERE id = ?
+               ) COLLATE NOCASE))
+          AND COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ')
+          AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'
+    `).get(product_id, product_id);
     const current_quantity = Number(current?.quantity) || 0;
     const tiers = db.prepare(`
         SELECT qty_min, unit_price

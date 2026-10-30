@@ -120,7 +120,9 @@ async function sendTierChangeEmail(product_id, old_price, new_price) {
         const row = db.prepare(`
             SELECT SUM(quantite) as qty
             FROM precommandes
-            WHERE product_id = ? AND email = ? AND statut != 'annulee'
+            WHERE product_id = ? AND email = ?
+              AND COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ')
+              AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'
         `).get(product_id, email);
         const qty = row?.qty || 0;
         const newTotal = Math.round(new_price * qty * 100) / 100;
@@ -334,6 +336,12 @@ function sanitizeCSV(val, isText = false) {
     return '"' + str.replace(/"/g, '""') + '"';
 }
 
+const escapeCSV = (val) => {
+    let str = String(val ?? '').replace(/\n|\r/g, ' ');
+    if (/^[\s\uFEFF]*[=+\-@]/.test(str)) str = "'" + str;
+    return '"' + str.replace(/"/g, '""') + '"';
+};
+
 function requireAdmin(req, res, next) {
     const session = getAdminSession(req);
     if (session) {
@@ -391,6 +399,20 @@ const ORDER_STATUSES = [
     { value: 'ANNULE', label: 'Annulé' }
 ];
 const ORDER_STATUS_LABELS = Object.fromEntries(ORDER_STATUSES.map(status => [status.value, status.label]));
+const ORDER_STATUS_BY_LEGACY_STATUS = {
+    en_attente: 'EN_ATTENTE_PAIEMENT',
+    confirmee: 'PAYE',
+    livree: 'REMIS',
+    annulee: 'ANNULE'
+};
+const LEGACY_STATUS_BY_ORDER_STATUS = {
+    EN_ATTENTE_PAIEMENT: 'en_attente',
+    PAYE: 'confirmee',
+    EN_COMMANDE: 'confirmee',
+    PRET_AU_LOCAL: 'confirmee',
+    REMIS: 'livree',
+    ANNULE: 'annulee'
+};
 
 function validateProductBody(body, isNew = false) {
     const errors = [];
@@ -789,19 +811,6 @@ app.post('/api/precommande', precommandeLimiter, (req, res) => {
                 return res.status(400).json({ success: false, message: 'L’option sans personnalisation n’est pas disponible pour cet article.' });
             }
 
-            // Prix dynamique selon grille dégressive
-            const priceInfo = getCurrentPrice(productInfo.id);
-            const unitPrice = priceInfo !== null ? priceInfo.unit_price : productInfo.price;
-            const linePrice = Math.round(unitPrice * qty * 100) / 100;
-
-            // Snapshot du palier avant insertion (une seule fois par produit)
-            if (!tierSnapshotBefore.has(productInfo.id)) {
-                tierSnapshotBefore.set(productInfo.id, {
-                    tier_id: priceInfo ? priceInfo.tier_id : null,
-                    unit_price: unitPrice,
-                });
-            }
-
             const isCustomizable = Number(productInfo.requires_customization) === 1;
             const itemPersonalization = item.personalization === undefined
                 ? cleanPersonalization(personnalisationClean)
@@ -815,14 +824,36 @@ app.post('/api/precommande', precommandeLimiter, (req, res) => {
                 taille: cleanTaille,
                 noCustomization,
                 personnalisation: linePersonalization,
-                qty,
-                linePrice,
-                unitPrice
+                qty
             });
         }
 
         if (verifiedLines.some(line => Number(line.product.requires_customization) === 1 && line.noCustomization !== true && !line.personnalisation)) {
             return res.status(400).json({ success: false, message: 'Une personnalisation est obligatoire pour un ou plusieurs produits de votre panier.' });
+        }
+
+        // Le même palier s'applique à toutes les tailles d'un produit dans ce panier.
+        const requestedByProduct = new Map();
+        for (const line of verifiedLines) {
+            const requested = requestedByProduct.get(line.product.id) || { product: line.product, qty: 0 };
+            requested.qty += line.qty;
+            requestedByProduct.set(line.product.id, requested);
+        }
+
+        const unitPriceByProduct = new Map();
+        for (const [productId, { product, qty }] of requestedByProduct) {
+            const priceBefore = getCurrentPrice(productId);
+            tierSnapshotBefore.set(productId, {
+                tier_id: priceBefore ? priceBefore.tier_id : null,
+                unit_price: priceBefore ? priceBefore.unit_price : product.price,
+            });
+
+            const priceInfo = getCurrentPrice(productId, qty);
+            unitPriceByProduct.set(productId, priceInfo ? priceInfo.unit_price : product.price);
+        }
+        for (const line of verifiedLines) {
+            line.unitPrice = unitPriceByProduct.get(line.product.id);
+            line.linePrice = Math.round(line.unitPrice * line.qty * 100) / 100;
         }
 
         // 3b. Remarques consolidées
@@ -1193,19 +1224,25 @@ app.get('/api/admin/precommandes', requireAdmin, (req, res) => {
         const allRecords = db.prepare('SELECT client_id, produit, taille, statut, status, quantite, prix_estime, commande_ref FROM precommandes').all();
         const totalUQ = db.prepare('SELECT COUNT(DISTINCT client_id) as count FROM precommandes').get();
         const uniqueOrders = db.prepare('SELECT COUNT(DISTINCT COALESCE(commande_ref, id)) as count FROM precommandes').get();
-        const activeRecords = allRecords.filter(r => !['ANNULE', 'ANNULÉ'].includes(String(r.status || '').trim().toUpperCase()));
+        const activeRecords = allRecords.filter(r =>
+            !['ANNULE', 'ANNULÉ'].includes(String(r.status || '').trim().toUpperCase())
+            && String(r.statut || '').trim().toLowerCase() !== 'annulee'
+        );
         const stats = {
             totalOrders: uniqueOrders ? uniqueOrders.count : allRecords.length,
             totalLines: allRecords.length,
             totalUniqueClients: totalUQ ? totalUQ.count : 0,
             totalRevenue: activeRecords.reduce((acc, c) => acc + (Number(c.prix_estime) || 0), 0),
             byStatus: {
-                en_attente: allRecords.filter(r => r.status === 'EN_ATTENTE_PAIEMENT' || r.status === 'EN_COMMANDE').length,
-                confirmee: allRecords.filter(r => r.status === 'PAYE' || r.status === 'PRET_AU_LOCAL').length,
-                livree: allRecords.filter(r => r.status === 'REMIS').length,
-                annulee: allRecords.filter(r => r.status === 'ANNULE' || r.statut === 'annulee').length
+                en_attente: activeRecords.filter(r => r.status === 'EN_ATTENTE_PAIEMENT' || r.status === 'EN_COMMANDE').length,
+                confirmee: activeRecords.filter(r => r.status === 'PAYE' || r.status === 'PRET_AU_LOCAL').length,
+                livree: activeRecords.filter(r => r.status === 'REMIS').length,
+                annulee: allRecords.filter(r =>
+                    ['ANNULE', 'ANNULÉ'].includes(String(r.status || '').trim().toUpperCase())
+                    || String(r.statut || '').trim().toLowerCase() === 'annulee'
+                ).length
             },
-            recapByProductSize: db.prepare("SELECT produit, taille, SUM(quantite) as quantite, COUNT(*) as count, SUM(prix_estime) as total_prix FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ') GROUP BY produit, taille ORDER BY produit ASC, taille ASC").all()
+            recapByProductSize: db.prepare("SELECT produit, taille, SUM(quantite) as quantite, COUNT(*) as count, SUM(prix_estime) as total_prix FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ') AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee' GROUP BY produit COLLATE BINARY, taille COLLATE BINARY ORDER BY produit COLLATE BINARY ASC, taille COLLATE BINARY ASC").all()
         };
         return res.json({ success: true, precommandes, stats });
     } catch(error) { console.error('Erreur GET precommandes:', error); return res.status(500).json({ success: false, message: 'Erreur données.' }); }
@@ -1232,7 +1269,8 @@ app.patch('/api/admin/precommandes/:id/status', requireAdmin, (req, res) => {
         if (!isPositiveIntegerParam(id) || !Object.hasOwn(ORDER_STATUS_LABELS, status)) {
             return res.status(400).json({ success: false, message: 'Commande ou statut invalide.' });
         }
-        const result = db.prepare('UPDATE precommandes SET status = ? WHERE id = ?').run(status, Number(id));
+        const result = db.prepare('UPDATE precommandes SET status = ?, statut = ? WHERE id = ?')
+            .run(status, LEGACY_STATUS_BY_ORDER_STATUS[status], Number(id));
         if (result.changes === 0) {
             return res.status(404).json({ success: false, message: 'Commande introuvable.' });
         }
@@ -1261,8 +1299,10 @@ app.patch('/api/admin/precommandes/:id/status-all', requireAdmin, (req, res) => 
             const order = db.prepare('SELECT commande_ref FROM precommandes WHERE id = ?').get(Number(id));
             if (!order) return { changes: 0 };
             return order.commande_ref
-                ? db.prepare('UPDATE precommandes SET status = ? WHERE commande_ref = ?').run(status, order.commande_ref)
-                : db.prepare('UPDATE precommandes SET status = ? WHERE id = ?').run(status, Number(id));
+                ? db.prepare('UPDATE precommandes SET status = ?, statut = ? WHERE commande_ref = ?')
+                    .run(status, LEGACY_STATUS_BY_ORDER_STATUS[status], order.commande_ref)
+                : db.prepare('UPDATE precommandes SET status = ?, statut = ? WHERE id = ?')
+                    .run(status, LEGACY_STATUS_BY_ORDER_STATUS[status], Number(id));
         })();
         if (result.changes === 0) {
             return res.status(404).json({ success: false, message: 'Commande introuvable.' });
@@ -1285,7 +1325,8 @@ app.patch('/api/admin/precommandes/ref/:commande_ref', requireAdmin, (req, res) 
     try {
         const { commande_ref } = req.params; const { statut } = req.body;
         if (!/^CMD-[A-Z0-9-]{1,40}$/i.test(commande_ref) || !['en_attente', 'confirmee', 'livree', 'annulee'].includes(statut)) return res.status(400).json({ success: false, message: 'Référence ou statut invalide.' });
-        const info = db.prepare('UPDATE precommandes SET statut = ? WHERE commande_ref = ?').run(statut, commande_ref);
+        const info = db.prepare('UPDATE precommandes SET statut = ?, status = ? WHERE commande_ref = ?')
+            .run(statut, ORDER_STATUS_BY_LEGACY_STATUS[statut], commande_ref);
         if (info.changes === 0) return res.status(404).json({ success: false, message: 'Aucune commande trouvée pour cette référence.' });
         return res.json({ success: true, message: 'Statut mis à jour pour ' + info.changes + ' article(s).' });
     } catch(error) { console.error('Erreur PATCH commande groupée:', error); return res.status(500).json({ success: false, message: 'Erreur mise à jour.' }); }
@@ -1295,7 +1336,8 @@ app.patch('/api/admin/precommandes/:id', requireAdmin, (req, res) => {
     try {
         const { id } = req.params; const { statut } = req.body;
         if (!isPositiveIntegerParam(id) || !['en_attente', 'confirmee', 'livree', 'annulee'].includes(statut)) return res.status(400).json({ success: false, message: 'Commande ou statut invalide.' });
-        const info = db.prepare('UPDATE precommandes SET statut = ? WHERE id = ?').run(statut, id);
+        const info = db.prepare('UPDATE precommandes SET statut = ?, status = ? WHERE id = ?')
+            .run(statut, ORDER_STATUS_BY_LEGACY_STATUS[statut], id);
         if (info.changes === 0) return res.status(404).json({ success: false, message: 'Précommande non trouvée.' });
         return res.json({ success: true, message: 'Statut mis à jour.' });
     } catch(error) { console.error('Erreur PATCH precommande:', error); return res.status(500).json({ success: false, message: 'Erreur mise à jour.' }); }
@@ -1338,31 +1380,62 @@ app.delete('/api/admin/clients/:id', requireAdmin, (req, res) => {
 
 app.get('/api/admin/export', requireAdmin, (req, res) => {
     try {
-        const rows = db.prepare("SELECT p.*, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN products pr ON pr.id = p.product_id WHERE COALESCE(UPPER(TRIM(p.status)), '') NOT IN ('ANNULE', 'ANNULÉ') ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC").all();
-        const headers = ['ID Ligne', 'Réf. Commande', 'Client ID', 'Date', 'Nom', 'Prénom enfant', 'Nom enfant', 'Email', 'Téléphone', 'Produit', 'Taille', 'Quantite', 'Prix Estime', 'Statut', 'Consentement RGPD', 'Date Consentement', 'Remarques', 'Personnalisation'];
-        const csvLines = [headers.map(h => sanitizeCSV(h)).join(';')];
+        const rows = db.prepare('SELECT p.*, c.nom as client_nom, c.email as client_email, c.telephone as client_telephone, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN products pr ON pr.id = p.product_id ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC').all();
+        const headers = ['Réf. Commande', 'Date', 'Nom Parent', 'Prénom Parent', 'Email Parent', 'Téléphone Parent', 'Nom Enfant', 'Prénom Enfant', 'Produit', 'Taille', 'Quantité', 'Prix Total', 'Statut', 'Personnalisation', "Remarques (avec adresse mail et téléphone de l'enfant si renseigné)"];
+        const csvLines = [headers.join(';')];
         rows.forEach(r => {
-            const fd = r.date_creation ? new Date(r.date_creation).toLocaleString('fr-FR') : '-';
-            const fcd = r.date_consentement ? new Date(r.date_consentement).toLocaleString('fr-FR') : fd;
-            const emailVal = r.email || r.contact || '-';
-            const telVal = r.telephone || '-';
+            const date = r.date_creation ? new Date(r.date_creation).toLocaleString('fr-FR') : '';
+            const parentFullName = String(r.nom || r.client_nom || '').trim();
+            const parentNameParts = parentFullName.split(/\s+/).filter(Boolean);
+            const parentPrenom = parentNameParts.length > 1 ? parentNameParts.shift() : '';
+            const parentNom = parentNameParts.length > 0 ? parentNameParts.join(' ') : parentFullName;
+            const email = r.email || r.client_email || r.contact || '';
+            const telephone = r.telephone || r.client_telephone || '';
             const refVal = r.commande_ref || ('CMD-' + r.id);
             const personnalisation = Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
                 ? cleanPersonalization(r.personnalisation)
                 : '';
-            csvLines.push([r.id, refVal, formatClientId(r.client_id), fd, r.nom, r.student_first_name || '', r.student_last_name || '', sanitizeCSV(emailVal), sanitizeCSV(telVal, true), r.produit, r.taille, r.quantite, r.prix_estime, ORDER_STATUS_LABELS[r.status] || r.status, r.consentement === 1 ? 'Oui' : 'Non', fcd, sanitizeCSV(r.remarques || '', true), sanitizeCSV(personnalisation, true)].map((val, idx) => (idx === 7 || idx === 8 || idx === 16 || idx === 17 ? val : sanitizeCSV(val))).join(';'));
+            const status = r.status || r.statut || '';
+            const remarques = String(r.remarques || '').split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(line => !/^\[ENFANT\]/i.test(line))
+                .map(line => line
+                    .replace(/^\[(?:REMARQUES|GRAVURE USB|MARQUAGE TSHIRT)\]\s*/i, '')
+                    .replace(/^(?:Email enfant|Tél enfant):\s*/i, ''))
+                .filter(Boolean)
+                .join(' ');
+            const prixTotal = Number.isFinite(Number(r.prix_estime))
+                ? Number(r.prix_estime).toFixed(2).replace('.', ',')
+                : '';
+            csvLines.push([
+                refVal,
+                date,
+                parentNom,
+                parentPrenom,
+                email,
+                telephone,
+                r.student_last_name || '',
+                r.student_first_name || '',
+                r.produit,
+                r.taille,
+                r.quantite,
+                prixTotal,
+                ORDER_STATUS_LABELS[status] || status,
+                personnalisation,
+                remarques
+            ].map(escapeCSV).join(';'));
         });
         const filename = 'precommandes-acelspace-' + new Date().toISOString().slice(0, 10) + '.csv';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
-        return res.send('\uFEFF' + csvLines.join('\r\n'));
+        return res.send('\uFEFF' + csvLines.join('\n') + '\n');
     } catch(error) { console.error('Erreur export CSV:', error); return res.status(500).json({ success: false, message: 'Erreur export CSV.' }); }
 });
 
 app.get('/api/admin/export-recap', requireAdmin, (req, res) => {
     try {
-        let query = "SELECT produit, taille, SUM(quantite) as quantite_totale, COUNT(*) as nombre_commandes, SUM(prix_estime) as total_estime FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ')";
-        query += ' GROUP BY produit, taille ORDER BY produit ASC, taille ASC';
+        let query = "SELECT produit, taille, SUM(quantite) as quantite_totale, COUNT(*) as nombre_commandes, SUM(prix_estime) as total_estime FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ') AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'";
+        query += ' GROUP BY produit COLLATE BINARY, taille COLLATE BINARY ORDER BY produit COLLATE BINARY ASC, taille COLLATE BINARY ASC';
         const rows = db.prepare(query).all();
         const headers = ['Produit', 'Taille', 'Quantite Totale', 'Nombre Commandes', 'Total Estime'];
         const csvLines = [headers.map(h => sanitizeCSV(h)).join(';')];
