@@ -285,6 +285,7 @@ app.use('/uploads', express.static(uploadsDir, { dotfiles: 'deny', index: false 
 // ─── Rate Limiters
 const precommandeLimiter = rateLimit({ windowMs: 15*60*1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes. Veuillez réessayer dans quelques minutes.' } });
 const otpLimiter = rateLimit({ windowMs: 15*60*1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes de suivi. Réessayez dans 15 minutes.' } });
+const contactLimiter = rateLimit({ windowMs: 15*60*1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de messages envoyés. Réessayez dans 15 minutes.' } });
 const trackingChallenges = new Map();
 const trackingLocks = new Map();
 const adminSessions = new Map();
@@ -493,6 +494,70 @@ function validateProductBody(body, isNew = false) {
 }
 
 // ─── Routes Publiques
+
+app.post('/api/contact', contactLimiter, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const body = req.body || {};
+    if (hasInvalidTextFields(body, { nom: 100, prenom: 100, email: 254, message: 5000 })) {
+        return res.status(400).json({ success: false, message: 'Les informations saisies sont invalides.' });
+    }
+
+    const nom = typeof body.nom === 'string' ? body.nom.trim().replace(/\s+/g, ' ') : '';
+    const prenom = typeof body.prenom === 'string' ? body.prenom.trim().replace(/\s+/g, ' ') : '';
+    const email = typeof body.email === 'string' ? normalizeEmail(body.email.trim()) : '';
+    const message = typeof body.message === 'string' ? body.message.trim() : '';
+
+    if (!nom || !prenom || !message || !isValidEmail(email)) {
+        return res.status(400).json({ success: false, message: 'Veuillez renseigner tous les champs avec une adresse e-mail valide.' });
+    }
+
+    const transporter = createMailTransporter();
+    if (!transporter) {
+        return res.status(503).json({ success: false, message: 'Le formulaire de contact est temporairement indisponible.' });
+    }
+
+    const escapeHtml = value => value.replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[char]);
+    const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br>');
+
+    try {
+        await Promise.all([
+            transporter.sendMail({
+                from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
+                to: email,
+                subject: 'Confirmation de réception de votre message - AcelSpace',
+                html: `Votre message a bien été envoyé. Nous vous recontacterons sur cette adresse e-mail dans les plus brefs délais.<br><br>Rappel de votre message :<br><i>${safeMessage}</i>`
+            }),
+            transporter.sendMail({
+                from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
+                to: 'acelspacfx@gmail.com',
+                subject: `Nouveau message de contact : ${nom} ${prenom}`,
+                text: `Nom : ${nom}\nPrénom : ${prenom}\nEmail de contact : ${email}\n\nMessage :\n${message}`
+            })
+        ]);
+    } catch (error) {
+        console.error('Erreur envoi du formulaire de contact :', error);
+        return res.status(500).json({ success: false, message: 'Impossible d’envoyer votre message pour le moment. Veuillez réessayer plus tard.' });
+    }
+
+    fetch('https://ntfy.sh/acelspace-contact', {
+        method: 'POST',
+        body: message,
+        headers: {
+            'Title': `Nouveau mail de ${nom} ${prenom}`,
+            'Tags': 'email,envelope'
+        }
+    }).then(response => {
+        if (!response.ok) console.error(`Erreur d'envoi NTFY contact: HTTP ${response.status}`);
+    }).catch(error => console.error('Erreur d’envoi NTFY contact:', error));
+
+    return res.json({ success: true });
+});
 
 /** GET /api/products — produits actifs + prix dynamique si grille définie */
 app.get('/api/products', (req, res) => {
