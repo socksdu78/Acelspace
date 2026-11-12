@@ -25,13 +25,15 @@ Alpine.data('adminApp', () => ({
     statusLoading: false,
     confirmToggleModalOpen: false,
     statusToggleError: '',
+    distributionModeActive: false,
+    distributionLoading: false,
 
     filterStatut: 'all',
     orderStatuses: [
         { value: 'EN_ATTENTE_PAIEMENT', label: 'En attente de paiement' },
         { value: 'PAYE', label: 'Payé' },
         { value: 'EN_COMMANDE', label: 'En commande fournisseur' },
-        { value: 'PRET_AU_LOCAL', label: 'Prêt au local' },
+        { value: 'PRET_AU_CLUB', label: 'Prêt au club' },
         { value: 'REMIS', label: 'Remis au client' },
         { value: 'ANNULE', label: 'Annulé' }
     ],
@@ -176,6 +178,42 @@ Alpine.data('adminApp', () => ({
         }
     },
 
+    async fetchDistributionMode() {
+        try {
+            const response = await fetch('/api/admin/distribution', { cache: 'no-store' });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                if (response.status === 401) this.authenticated = false;
+                throw new Error(data.message || `HTTP ${response.status}`);
+            }
+            this.distributionModeActive = Boolean(data.distributionModeActive);
+        } catch (error) {
+            console.error('Erreur récupération mode distribution :', error);
+            this.showToast(`Impossible de récupérer le mode distribution : ${error.message}`, 'error');
+        }
+    },
+
+    async toggleDistributionMode() {
+        this.distributionLoading = true;
+        try {
+            const response = await fetch('/api/admin/distribution', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                if (response.status === 401) this.authenticated = false;
+                throw new Error(data.message || `HTTP ${response.status}`);
+            }
+            this.distributionModeActive = Boolean(data.distributionModeActive);
+            this.showToast(this.distributionModeActive ? 'Mode distribution activé.' : 'Mode distribution désactivé.');
+        } catch (error) {
+            console.error('Erreur changement mode distribution :', error);
+            this.showToast(`Impossible de modifier le mode distribution : ${error.message}`, 'error');
+        } finally {
+            this.distributionLoading = false;
+        }
+    },
+
     async checkAuth() {
         this.checkingAuth = true;
         try {
@@ -184,7 +222,7 @@ Alpine.data('adminApp', () => ({
                 const data = await res.json();
                 if (data.authenticated) {
                     this.authenticated = true;
-                    await Promise.all([this.fetchPrecommandes(), this.fetchStatus(), this.fetchProducts()]);
+                    await Promise.all([this.fetchPrecommandes(), this.fetchStatus(), this.fetchDistributionMode(), this.fetchProducts()]);
                 }
             } else {
                 this.authenticated = false;
@@ -221,7 +259,7 @@ Alpine.data('adminApp', () => ({
                 this.authenticated = true;
                 this.password = '';
                 this.showToast('Connexion réussie !');
-                await Promise.all([this.fetchPrecommandes(), this.fetchStatus(), this.fetchProducts()]);
+                await Promise.all([this.fetchPrecommandes(), this.fetchStatus(), this.fetchDistributionMode(), this.fetchProducts()]);
             }
         } catch (err) {
             console.error('Erreur login :', err);
@@ -1098,7 +1136,7 @@ Alpine.data('adminApp', () => ({
             EN_ATTENTE_PAIEMENT: 'bg-slate-200 text-slate-800 border-slate-400 font-medium',
             PAYE: 'bg-emerald-100 text-emerald-800 border-emerald-400 font-medium',
             EN_COMMANDE: 'bg-amber-100 text-amber-800 border-amber-400 font-medium',
-            PRET_AU_LOCAL: 'bg-sky-100 text-sky-800 border-sky-400 font-medium',
+            PRET_AU_CLUB: 'bg-sky-100 text-sky-800 border-sky-400 font-medium',
             REMIS: 'bg-green-200 text-green-900 border-green-500 font-medium',
             ANNULE: 'bg-rose-100 text-rose-800 border-rose-400 font-medium'
         };
@@ -1110,7 +1148,7 @@ Alpine.data('adminApp', () => ({
             EN_ATTENTE_PAIEMENT: 'bg-amber-100 text-amber-900 border-amber-800',
             PAYE: 'bg-emerald-100 text-emerald-900 border-emerald-800',
             EN_COMMANDE: 'bg-sky-100 text-sky-900 border-sky-800',
-            PRET_AU_LOCAL: 'bg-indigo-100 text-indigo-900 border-indigo-800',
+            PRET_AU_CLUB: 'bg-indigo-100 text-indigo-900 border-indigo-800',
             REMIS: 'bg-slate-200 text-slate-900 border-slate-600',
             ANNULE: 'bg-red-100 text-red-900 border-red-800'
         };

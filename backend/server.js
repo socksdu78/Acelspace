@@ -178,6 +178,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+let distributionModeActive = false;
 const PORT = process.env.PORT || 3000;
 const COOKIE_SECRET = process.env.COOKIE_SECRET;
 if (!COOKIE_SECRET || COOKIE_SECRET.length < 32) {
@@ -206,10 +207,15 @@ app.use(helmet({
             frameAncestors: ["'none'"],
             imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co'],
             objectSrc: ["'none'"],
-            scriptSrc: ["'self'", "'unsafe-eval'"],
+            scriptSrc: ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'https://unpkg.com'],
             scriptSrcAttr: ["'none'"],
             styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
             upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
+        }
+    },
+    permissionsPolicy: {
+        directives: {
+            camera: ['self']
         }
     }
 }));
@@ -395,7 +401,7 @@ const ORDER_STATUSES = [
     { value: 'EN_ATTENTE_PAIEMENT', label: 'En attente de paiement' },
     { value: 'PAYE', label: 'Payé' },
     { value: 'EN_COMMANDE', label: 'En commande fournisseur' },
-    { value: 'PRET_AU_LOCAL', label: 'Prêt au local' },
+    { value: 'PRET_AU_CLUB', label: 'Prêt au club' },
     { value: 'REMIS', label: 'Remis au client' },
     { value: 'ANNULE', label: 'Annulé' }
 ];
@@ -410,7 +416,7 @@ const LEGACY_STATUS_BY_ORDER_STATUS = {
     EN_ATTENTE_PAIEMENT: 'en_attente',
     PAYE: 'confirmee',
     EN_COMMANDE: 'confirmee',
-    PRET_AU_LOCAL: 'confirmee',
+    PRET_AU_CLUB: 'confirmee',
     REMIS: 'livree',
     ANNULE: 'annulee'
 };
@@ -749,7 +755,7 @@ app.post('/api/precommandes/suivi', otpLimiter, (req, res) => {
                 current_price: product ? (currentPrice?.unit_price ?? product.price) : null
             };
         });
-        return res.json({ success: true, commandes });
+        return res.json({ success: true, distributionModeActive, commandes });
     } catch (error) {
         console.error('Erreur POST /api/precommandes/suivi:', error);
         return res.status(500).json({ success: false, message: 'Impossible de rechercher les précommandes.' });
@@ -1053,6 +1059,16 @@ app.get('/api/admin/check-auth', (req, res) => {
     return res.status(401).json({ authenticated: false });
 });
 
+app.get('/api/admin/distribution', requireAdmin, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, distributionModeActive });
+});
+
+app.post('/api/admin/distribution', requireAdmin, (req, res) => {
+    distributionModeActive = !distributionModeActive;
+    return res.json({ success: true, distributionModeActive });
+});
+
 // ─── Routes Admin Produits
 app.get('/api/admin/products', requireAdmin, (req, res) => {
     try {
@@ -1300,7 +1316,7 @@ app.get('/api/admin/precommandes', requireAdmin, (req, res) => {
             totalRevenue: activeRecords.reduce((acc, c) => acc + (Number(c.prix_estime) || 0), 0),
             byStatus: {
                 en_attente: activeRecords.filter(r => r.status === 'EN_ATTENTE_PAIEMENT' || r.status === 'EN_COMMANDE').length,
-                confirmee: activeRecords.filter(r => r.status === 'PAYE' || r.status === 'PRET_AU_LOCAL').length,
+                confirmee: activeRecords.filter(r => r.status === 'PAYE' || r.status === 'PRET_AU_CLUB').length,
                 livree: activeRecords.filter(r => r.status === 'REMIS').length,
                 annulee: allRecords.filter(r =>
                     ['ANNULE', 'ANNULÉ'].includes(String(r.status || '').trim().toUpperCase())
@@ -1386,16 +1402,35 @@ app.patch('/api/admin/precommandes/:id/status-all', requireAdmin, (req, res) => 
     }
 });
 
-app.patch('/api/admin/precommandes/ref/:commande_ref', requireAdmin, (req, res) => {
+const updatePrecommandeByReference = (req, res) => {
     try {
-        const { commande_ref } = req.params; const { statut } = req.body;
-        if (!/^CMD-[A-Z0-9-]{1,40}$/i.test(commande_ref) || !['en_attente', 'confirmee', 'livree', 'annulee'].includes(statut)) return res.status(400).json({ success: false, message: 'Référence ou statut invalide.' });
+        const { commande_ref } = req.params;
+        const { status, statut } = req.body;
+        const nextStatus = status || ORDER_STATUS_BY_LEGACY_STATUS[statut];
+        if (!/^CMD-[A-Z0-9-]{1,40}$/i.test(commande_ref) || !Object.hasOwn(ORDER_STATUS_LABELS, nextStatus)) {
+            return res.status(400).json({ success: false, message: 'Référence ou statut invalide.' });
+        }
+        const order = db.prepare('SELECT student_first_name, nom FROM precommandes WHERE commande_ref = ? ORDER BY id ASC LIMIT 1').get(commande_ref);
+        if (!order) return res.status(404).json({ success: false, message: 'Aucune commande trouvée pour cette référence.' });
         const info = db.prepare('UPDATE precommandes SET statut = ?, status = ? WHERE commande_ref = ?')
-            .run(statut, ORDER_STATUS_BY_LEGACY_STATUS[statut], commande_ref);
+            .run(LEGACY_STATUS_BY_ORDER_STATUS[nextStatus], nextStatus, commande_ref);
         if (info.changes === 0) return res.status(404).json({ success: false, message: 'Aucune commande trouvée pour cette référence.' });
-        return res.json({ success: true, message: 'Statut mis à jour pour ' + info.changes + ' article(s).' });
-    } catch(error) { console.error('Erreur PATCH commande groupée:', error); return res.status(500).json({ success: false, message: 'Erreur mise à jour.' }); }
-});
+        const firstName = order.student_first_name?.trim() || order.nom?.trim().split(/\s+/)[0] || 'Client';
+        return res.json({
+            success: true,
+            status: nextStatus,
+            firstName,
+            updated_lines: info.changes,
+            message: 'Statut mis à jour pour ' + info.changes + ' article(s).'
+        });
+    } catch(error) {
+        console.error('Erreur mise à jour commande par référence:', error);
+        return res.status(500).json({ success: false, message: 'Erreur mise à jour.' });
+    }
+};
+
+app.patch('/api/admin/precommandes/ref/:commande_ref', requireAdmin, updatePrecommandeByReference);
+app.put('/api/admin/precommandes/ref/:commande_ref', requireAdmin, updatePrecommandeByReference);
 
 app.patch('/api/admin/precommandes/:id', requireAdmin, (req, res) => {
     try {

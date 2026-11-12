@@ -175,11 +175,14 @@ if (!precommandeCols.includes('student_last_name')) {
 }
 db.prepare(`
     UPDATE precommandes
-    SET status = CASE COALESCE(LOWER(TRIM(statut)), '')
-            WHEN 'confirmee' THEN 'PAYE'
-            WHEN 'livree' THEN 'REMIS'
-            WHEN 'annulee' THEN 'ANNULE'
-            ELSE 'EN_ATTENTE_PAIEMENT'
+    SET status = CASE
+            WHEN COALESCE(UPPER(TRIM(status)), '') = 'PRET_AU_LOCAL' THEN 'PRET_AU_CLUB'
+            ELSE CASE COALESCE(LOWER(TRIM(statut)), '')
+                WHEN 'confirmee' THEN 'PAYE'
+                WHEN 'livree' THEN 'REMIS'
+                WHEN 'annulee' THEN 'ANNULE'
+                ELSE 'EN_ATTENTE_PAIEMENT'
+            END
         END,
         statut = CASE COALESCE(LOWER(TRIM(statut)), '')
             WHEN 'confirmee' THEN 'confirmee'
@@ -188,7 +191,7 @@ db.prepare(`
             ELSE 'en_attente'
         END
     WHERE status IS NULL
-       OR status NOT IN ('EN_ATTENTE_PAIEMENT', 'PAYE', 'EN_COMMANDE', 'PRET_AU_LOCAL', 'REMIS', 'ANNULE')
+       OR status NOT IN ('EN_ATTENTE_PAIEMENT', 'PAYE', 'EN_COMMANDE', 'PRET_AU_CLUB', 'REMIS', 'ANNULE')
 `).run();
 db.prepare(`
     UPDATE precommandes

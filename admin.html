@@ -216,6 +216,17 @@
                             </button>
                         </div>
 
+                        <div class="flex flex-col items-start gap-2">
+                            <button @click="toggleDistributionMode()" :disabled="distributionLoading"
+                                class="px-4 py-2 bg-emerald-100 text-emerald-950 border-2 border-emerald-900 rounded-md font-black text-xs uppercase hover:bg-emerald-200 disabled:opacity-50 transition-colors cursor-pointer"
+                                x-text="distributionLoading ? 'MISE À JOUR...' : (distributionModeActive ? 'Désactiver le mode distribution' : 'Activer le mode distribution')">
+                            </button>
+                            <a x-show="distributionModeActive" x-cloak href="/admin/scanner.html"
+                                class="text-xs font-bold text-sky-900 underline underline-offset-2 hover:text-sky-700">
+                                Ouvrir le Scanner Mobile (à utiliser sur téléphone)
+                            </a>
+                        </div>
+
                         <!-- Edit closure message -->
                         <form @submit.prevent="saveMessage()"
                             class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto flex-1 lg:max-w-xl justify-end">

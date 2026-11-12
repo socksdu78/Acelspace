@@ -29,6 +29,7 @@ Alpine.data('merchApp', () => ({
     trackingReference: '',
     trackingCodeSent: false,
     trackingResults: [],
+    trackingDistributionModeActive: false,
     trackingLoading: false,
     trackingError: '',
     trackingNotice: '',
@@ -37,7 +38,7 @@ Alpine.data('merchApp', () => ({
         { index: 1, status: 'EN_ATTENTE_PAIEMENT', label: 'En attente de paiement' },
         { index: 2, status: 'PAYE', label: 'Payé' },
         { index: 3, status: 'EN_COMMANDE', label: 'En commande chez le fournisseur' },
-        { index: 4, status: 'PRET_AU_LOCAL', label: 'Prêt au local' },
+        { index: 4, status: 'PRET_AU_CLUB', label: 'Prêt au club' },
         { index: 5, status: 'REMIS', label: 'Remis au client' }
     ],
     activeProduct: null,
@@ -280,6 +281,7 @@ Alpine.data('merchApp', () => ({
                 this.trackingError = data.message || 'Impossible de rechercher les commandes.';
                 return;
             }
+            this.trackingDistributionModeActive = Boolean(data.distributionModeActive);
             this.trackingResults = data.commandes || [];
             this.trackingSearched = true;
         } catch (error) {
@@ -295,7 +297,7 @@ Alpine.data('merchApp', () => ({
             EN_ATTENTE_PAIEMENT: 'En attente de paiement',
             PAYE: 'Payé',
             EN_COMMANDE: 'En commande chez le fournisseur',
-            PRET_AU_LOCAL: 'Prêt au local',
+            PRET_AU_CLUB: 'Prêt au club',
             REMIS: 'Remis au client'
         }[status] || status;
     },
@@ -307,6 +309,25 @@ Alpine.data('merchApp', () => ({
             livree: 'bg-emerald-100 text-emerald-950 border-emerald-800',
             annulee: 'bg-red-100 text-red-950 border-red-800'
         }[status] || 'bg-slate-100 text-slate-900 border-slate-700';
+    },
+
+    async renderTrackingQr(element, reference) {
+        if (!window.QRCode || typeof window.QRCode.toCanvas !== 'function') {
+            this.trackingError = 'La génération du QR code est indisponible.';
+            return;
+        }
+        try {
+            const canvas = document.createElement('canvas');
+            await window.QRCode.toCanvas(canvas, reference, {
+                width: 200,
+                margin: 1,
+                color: { dark: '#0f172a', light: '#ffffff' }
+            });
+            element.replaceChildren(canvas);
+        } catch (error) {
+            console.error('Erreur génération QR code commande :', error);
+            this.trackingError = 'Impossible de générer le QR code de cette commande.';
+        }
     },
 
     formatTrackingDate(date) {

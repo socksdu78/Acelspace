@@ -58,6 +58,7 @@
         }
     </style>
 
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
     <!-- App entry (Alpine.js) — injecté par Vite -->
     <script type="module" src="/src/main.js"></script>
 </head>
@@ -990,6 +991,15 @@
                             <span x-text="`${order.quantite} × ${order.taille || 'Taille unique'}`"></span>
                             <time x-text="formatTrackingDate(order.date_creation)"></time>
                         </div>
+                        <template x-if="order.status === 'PRET_AU_CLUB' && trackingDistributionModeActive">
+                            <div class="flex flex-col items-center gap-2 rounded-md border-2 border-slate-200 bg-slate-50 p-3">
+                                <p class="text-xs font-black text-slate-800">QR code de retrait</p>
+                                <div :id="index === trackingResults.findIndex(result => result.status === 'PRET_AU_CLUB')
+                                        ? 'qrcode' : `qrcode-${index}`"
+                                    x-init="renderTrackingQr($el, order.reference)"
+                                    class="flex min-h-[200px] items-center justify-center" :aria-label="`QR code ${order.reference}`"></div>
+                            </div>
+                        </template>
                         <div class="overflow-x-auto overscroll-x-contain scroll-smooth pt-3 pb-2" aria-label="Avancement de la commande">
                             <div class="grid min-w-[420px] grid-cols-5 gap-1 text-center">
                                 <template x-for="step in trackingSteps" :key="step.index">
