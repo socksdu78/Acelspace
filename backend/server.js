@@ -1069,6 +1069,96 @@ app.post('/api/admin/distribution', requireAdmin, (req, res) => {
     return res.json({ success: true, distributionModeActive });
 });
 
+app.post('/api/admin/distribution/notify', requireAdmin, async (req, res) => {
+    const transporter = createMailTransporter();
+    if (!transporter) {
+        return res.status(503).json({ success: false, message: 'L’envoi des e-mails n’est pas configuré.' });
+    }
+
+    try {
+        const rows = db.prepare(`
+            SELECT p.id, p.commande_ref, p.email, p.contact, p.remarques,
+                   c.email AS client_email, c.contact AS client_contact
+            FROM precommandes p
+            LEFT JOIN clients c ON c.id = p.client_id
+            WHERE p.status = 'PRET_AU_CLUB'
+            ORDER BY p.commande_ref ASC, p.id ASC
+        `).all();
+        const orders = new Map();
+
+        for (const row of rows) {
+            const reference = row.commande_ref || `CMD-${String(row.id).padStart(4, '0')}`;
+            let order = orders.get(reference);
+            if (!order) {
+                order = { reference, parentEmail: '', studentEmail: '' };
+                orders.set(reference, order);
+            }
+
+            if (!order.parentEmail) {
+                order.parentEmail = [row.email, row.client_email, row.contact, row.client_contact]
+                    .find(email => isValidEmail(email));
+            }
+            if (!order.studentEmail) {
+                const studentEmail = row.remarques?.match(/^Email enfant:\s*(.+)$/im)?.[1]?.trim();
+                if (isValidEmail(studentEmail)) order.studentEmail = studentEmail;
+            }
+        }
+
+        let emailsSent = 0;
+        let failedCount = 0;
+        let skippedCount = 0;
+        for (const order of orders.values()) {
+            if (!order.parentEmail) {
+                skippedCount += 1;
+                console.warn(`Rappel de distribution ignoré pour ${order.reference} : adresse parent manquante ou invalide.`);
+                continue;
+            }
+
+            try {
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(order.reference)}`;
+                const html = `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"></head>
+<body style="font-family:Inter,system-ui,sans-serif;background:#bce0ec;margin:0;padding:24px">
+<div style="max-width:560px;margin:0 auto;background:#f6f3eb;border:2.5px solid #111827;border-radius:8px;overflow:hidden">
+    <div style="background:#111827;padding:20px 24px">
+        <h1 style="color:#f6f3eb;font-weight:900;font-size:22px;margin:0;text-transform:uppercase;letter-spacing:-0.5px">AcelSpace</h1>
+        <p style="color:#bce0ec;font-size:12px;margin:4px 0 0;font-weight:700;text-transform:uppercase">Récupération de commande</p>
+    </div>
+    <div style="padding:24px">
+        <p style="font-size:13px;color:#334155;font-weight:700">Bonsoir,<br><br>N'oubliez pas la récupération de vos produits demain. Voici le QR code à présenter au club pour récupérer votre commande :</p>
+        <div style="text-align:center">
+            <img src="${qrUrl}" alt="QR Code de distribution" style="margin-top:20px; border-radius:10px;">
+        </div>
+    </div>
+    <div style="background:#111827;padding:12px 24px;text-align:center">
+        <p style="color:#6b7280;font-size:10px;font-weight:700;margin:0;text-transform:uppercase">© 2026 AcelSpace — Paiement hors ligne</p>
+    </div>
+</div>
+</body></html>`;
+                const mail = {
+                    from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
+                    to: order.parentEmail,
+                    subject: 'Votre commande Acelspace est prête ! 🚀',
+                    html
+                };
+                if (order.studentEmail && order.studentEmail !== order.parentEmail) {
+                    mail.cc = order.studentEmail;
+                }
+                await transporter.sendMail(mail);
+                emailsSent += 1;
+            } catch (error) {
+                failedCount += 1;
+                console.error(`Erreur envoi rappel de distribution pour ${order.reference}:`, error.message);
+            }
+        }
+
+        return res.json({ success: true, emailsSent, failedCount, skippedCount });
+    } catch (error) {
+        console.error('Erreur envoi rappels de distribution:', error);
+        return res.status(500).json({ success: false, message: 'Impossible d’envoyer les e-mails de rappel.' });
+    }
+});
+
 // ─── Routes Admin Produits
 app.get('/api/admin/products', requireAdmin, (req, res) => {
     try {

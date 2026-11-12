@@ -27,6 +27,7 @@ Alpine.data('adminApp', () => ({
     statusToggleError: '',
     distributionModeActive: false,
     distributionLoading: false,
+    distributionNotifyLoading: false,
 
     filterStatut: 'all',
     orderStatuses: [
@@ -211,6 +212,28 @@ Alpine.data('adminApp', () => ({
             this.showToast(`Impossible de modifier le mode distribution : ${error.message}`, 'error');
         } finally {
             this.distributionLoading = false;
+        }
+    },
+
+    async sendDistributionReminders() {
+        this.distributionNotifyLoading = true;
+        try {
+            const response = await fetch('/api/admin/distribution/notify', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                if (response.status === 401) this.authenticated = false;
+                throw new Error(data.message || `HTTP ${response.status}`);
+            }
+            const message = `${data.emailsSent} e-mails envoyés avec succès !`;
+            const details = data.failedCount || data.skippedCount
+                ? ` (${data.failedCount} échec(s), ${data.skippedCount} commande(s) sans adresse parent valide)`
+                : '';
+            this.showToast(message + details, data.failedCount ? 'error' : 'success');
+        } catch (error) {
+            console.error('Erreur envoi des rappels de distribution :', error);
+            this.showToast(`Impossible d’envoyer les e-mails de rappel : ${error.message}`, 'error');
+        } finally {
+            this.distributionNotifyLoading = false;
         }
     },
 

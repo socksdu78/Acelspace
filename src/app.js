@@ -282,7 +282,7 @@ Alpine.data('merchApp', () => ({
                 return;
             }
             this.trackingDistributionModeActive = Boolean(data.distributionModeActive);
-            this.trackingResults = data.commandes || [];
+            this.trackingResults = this.groupTrackingOrders(data.commandes || []);
             this.trackingSearched = true;
         } catch (error) {
             console.error('Erreur recherche suivi commande :', error);
@@ -290,6 +290,26 @@ Alpine.data('merchApp', () => ({
         } finally {
             this.trackingLoading = false;
         }
+    },
+
+    groupTrackingOrders(lines) {
+        const groups = new Map();
+        for (const line of lines) {
+            let group = groups.get(line.reference);
+            if (!group) {
+                group = {
+                    reference: line.reference,
+                    status: line.status,
+                    status_label: line.status_label,
+                    progress_index: line.progress_index,
+                    date_creation: line.date_creation,
+                    lines: []
+                };
+                groups.set(line.reference, group);
+            }
+            group.lines.push(line);
+        }
+        return [...groups.values()];
     },
 
     trackingStatusLabel(status) {
