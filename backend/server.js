@@ -1121,7 +1121,7 @@ app.post('/api/admin/distribution/notify', requireAdmin, async (req, res) => {
 <body style="font-family:Inter,system-ui,sans-serif;background:#bce0ec;margin:0;padding:24px">
 <div style="max-width:560px;margin:0 auto;background:#f6f3eb;border:2.5px solid #111827;border-radius:8px;overflow:hidden">
     <div style="background:#111827;padding:20px 24px">
-        <h1 style="color:#f6f3eb;font-weight:900;font-size:22px;margin:0;text-transform:uppercase;letter-spacing:-0.5px">AcelSpace</h1>
+        <h1 style="color:#f6f3eb;font-weight:900;font-size:22px;margin:0;text-transform:uppercase;letter-spacing:-0.5px">Boutique AcelSpace</h1>
         <p style="color:#bce0ec;font-size:12px;margin:4px 0 0;font-weight:700;text-transform:uppercase">Récupération de commande</p>
     </div>
     <div style="padding:24px">
