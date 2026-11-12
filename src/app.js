@@ -312,6 +312,11 @@ Alpine.data('merchApp', () => ({
         return [...groups.values()];
     },
 
+    isTrackingStepComplete(order, step) {
+        return step.index < order.progress_index
+            || (order.status === 'REMIS' && step.status === 'REMIS');
+    },
+
     trackingStatusLabel(status) {
         return {
             EN_ATTENTE_PAIEMENT: 'En attente de paiement',

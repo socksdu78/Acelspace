@@ -1009,14 +1009,14 @@
                                                     class="absolute left-1/2 top-3 h-1 w-full"
                                                     :class="order.progress_index > step.index ? 'bg-emerald-500' : 'bg-slate-200'"></div>
                                                 <span class="relative z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 text-[10px] font-black"
-                                                    :class="step.index < order.progress_index
+                                                    :class="isTrackingStepComplete(order, step)
                                                         ? 'bg-emerald-600 text-white border-emerald-700'
-                                                        : (step.index === order.progress_index
+                                                        : (step.index === order.progress_index && order.status !== 'REMIS'
                                                             ? 'bg-sky-700 text-white border-sky-900 ring-2 ring-sky-200'
                                                             : 'bg-slate-100 text-slate-500 border-slate-300')"
-                                                    x-text="step.index < order.progress_index ? '✓' : step.index"></span>
+                                                    x-text="isTrackingStepComplete(order, step) ? '✓' : step.index"></span>
                                                 <span class="mt-1 text-[10px] sm:text-[11px] font-bold leading-tight"
-                                                    :class="step.index === order.progress_index ? 'text-sky-900' : (step.index < order.progress_index ? 'text-emerald-800' : 'text-slate-400')"
+                                                    :class="isTrackingStepComplete(order, step) ? 'text-emerald-800' : (step.index === order.progress_index ? 'text-sky-900' : 'text-slate-400')"
                                                     x-text="step.label"></span>
                                             </div>
                                         </template>
