@@ -195,7 +195,7 @@ Alpine.data('merchApp', () => ({
             return;
         }
 
-        const measurementId = 'G-XXXXXXXXXX';
+        const measurementId = 'G-7ZM1FTGJ8N';
         window.dataLayer = window.dataLayer || [];
         window.gtag = function () {
             window.dataLayer.push(arguments);
