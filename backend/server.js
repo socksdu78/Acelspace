@@ -1077,10 +1077,10 @@ app.get('/api/admin/analytics', requireAdmin, (req, res) => {
     // TODO: Remplacer par l'appel à @google-analytics/data via clé de compte de service
     return res.json({
         dates,
-        pageviews: [12, 19, 3, 5, 2, 3, 15],
+        pageviews: [0, 0, 0, 0, 0, 0, 0],
         topPages: {
             labels: ['/accueil', '/boutique', '/panier'],
-            data: [45, 30, 10]
+            data: [0, 0, 0]
         }
     });
 });
