@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
                 input: {
                     main: resolve(__dirname, 'index.html'),
                     admin: resolve(__dirname, 'admin.html'),
+                    'admin/analytics': resolve(__dirname, 'admin/analytics.html'),
                     'admin/scanner': resolve(__dirname, 'admin/scanner.html'),
                     print: resolve(__dirname, 'admin-print.html'),
                     legal: resolve(__dirname, 'mentions-legales.html'),

@@ -24,6 +24,7 @@ Alpine.data('merchApp', () => ({
     cookiePreferencesOpen: false,
     cookiePreferencesError: '',
     cookiePreferences: { essential: true, analytics: false },
+    analyticsScriptLoaded: false,
     trackingEmail: '',
     trackingCode: '',
     trackingReference: '',
@@ -144,12 +145,13 @@ Alpine.data('merchApp', () => ({
 
     loadCookiePreferences() {
         try {
-            const saved = localStorage.getItem('acelspace-cookie-preferences');
+            const saved = localStorage.getItem('cookie_consent_v2');
             if (!saved) return;
             const preferences = JSON.parse(saved);
             if (preferences && typeof preferences.analytics === 'boolean') {
                 this.cookiePreferences = { essential: true, analytics: preferences.analytics };
                 this.cookieConsentSaved = true;
+                if (preferences.analytics) this.loadGoogleAnalytics();
             }
         } catch (error) {
             console.error('Impossible de lire les préférences de cookies :', error);
@@ -158,17 +160,55 @@ Alpine.data('merchApp', () => ({
     },
 
     saveCookiePreferences(analytics) {
-        this.cookiePreferences = { essential: true, analytics };
         try {
-            localStorage.setItem('acelspace-cookie-preferences', JSON.stringify(this.cookiePreferences));
+            const preferences = { essential: true, analytics };
+            localStorage.setItem('cookie_consent_v2', JSON.stringify(preferences));
+            this.cookiePreferences = preferences;
             this.cookieConsentSaved = true;
             this.cookiePreferencesOpen = false;
             this.cookiePreferencesError = '';
+            if (analytics) {
+                this.loadGoogleAnalytics();
+            } else if (this.analyticsScriptLoaded) {
+                window.gtag('consent', 'update', {
+                    analytics_storage: 'denied',
+                    ad_storage: 'denied',
+                    ad_user_data: 'denied',
+                    ad_personalization: 'denied'
+                });
+            }
         } catch (error) {
             console.error('Impossible d’enregistrer les préférences de cookies :', error);
             this.cookieConsentSaved = false;
             this.cookiePreferencesError = 'Impossible d’enregistrer votre choix dans ce navigateur. Vérifiez ses paramètres de stockage.';
         }
+    },
+
+    loadGoogleAnalytics() {
+        if (this.analyticsScriptLoaded) {
+            window.gtag('consent', 'update', {
+                analytics_storage: 'granted',
+                ad_storage: 'denied',
+                ad_user_data: 'denied',
+                ad_personalization: 'denied'
+            });
+            return;
+        }
+
+        const measurementId = 'G-XXXXXXXXXX';
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = function () {
+            window.dataLayer.push(arguments);
+        };
+        window.gtag('js', new Date());
+        window.gtag('config', measurementId);
+
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
+        script.dataset.analytics = 'ga4';
+        document.head.appendChild(script);
+        this.analyticsScriptLoaded = true;
     },
 
     openCookiePreferences() {

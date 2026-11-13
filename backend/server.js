@@ -201,13 +201,13 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             baseUri: ["'self'"],
-            connectSrc: ["'self'"],
+            connectSrc: ["'self'", 'https://www.google-analytics.com', 'https://region1.google-analytics.com', 'https://analytics.google.com'],
             fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
             formAction: ["'self'"],
             frameAncestors: ["'none'"],
-            imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co'],
+            imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co', 'https://www.google-analytics.com'],
             objectSrc: ["'none'"],
-            scriptSrc: ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'https://unpkg.com'],
+            scriptSrc: ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://www.googletagmanager.com'],
             scriptSrcAttr: ["'none'"],
             styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
             upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
@@ -1062,6 +1062,27 @@ app.get('/api/admin/check-auth', (req, res) => {
 app.get('/api/admin/distribution', requireAdmin, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ success: true, distributionModeActive });
+});
+
+app.get('/api/admin/analytics', requireAdmin, (req, res) => {
+    const today = new Date();
+    const dates = Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(today);
+        date.setDate(today.getDate() - (6 - index));
+        const label = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' }).format(date);
+        return label.charAt(0).toUpperCase() + label.slice(1).replace('.', '');
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
+    // TODO: Remplacer par l'appel à @google-analytics/data via clé de compte de service
+    return res.json({
+        dates,
+        pageviews: [12, 19, 3, 5, 2, 3, 15],
+        topPages: {
+            labels: ['/accueil', '/boutique', '/panier'],
+            data: [45, 30, 10]
+        }
+    });
 });
 
 app.post('/api/admin/distribution', requireAdmin, (req, res) => {

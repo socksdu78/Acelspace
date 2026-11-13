@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#bce0ec">
+    <title>Analytics — Administration AcelSpace</title>
+    <link rel="icon" type="image/png" href="/favicon.ico">
+    <link rel="stylesheet" href="/src/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="./analytics.js"></script>
+</head>
+
+<body class="bg-blueprint-grid min-h-screen p-3 font-sans text-slate-900 antialiased sm:p-6 md:p-8">
+    <main class="mx-auto flex w-full max-w-[1680px] flex-col gap-6">
+        <header class="flex flex-wrap items-center justify-between gap-4 bg-card-bg p-4 card-border sm:p-5">
+            <div class="flex items-center gap-3">
+                <a href="/admin.html" class="font-black text-xl uppercase tracking-tight hover:text-sky-800 sm:text-2xl">AcelSpace</a>
+                <span class="bg-slate-900 px-2.5 py-1 text-[10px] font-black uppercase text-white pill-border">Admin Panel</span>
+            </div>
+            <a href="/admin.html"
+                class="bg-white px-4 py-2 text-xs font-black uppercase transition-colors hover:bg-slate-900 hover:text-white pill-border">
+                ⬅ Retour aux Précommandes
+            </a>
+        </header>
+
+        <section class="space-y-2">
+            <p class="text-xs font-black uppercase tracking-[0.2em] text-sky-900">Statistiques du site</p>
+            <h1 class="text-3xl font-black uppercase tracking-tight sm:text-4xl">Tableau de bord Analytics</h1>
+            <p class="text-sm font-semibold text-slate-700">Évolution des visites et pages les plus consultées.</p>
+        </section>
+
+        <p id="analytics-status" class="hidden bg-card-bg p-4 text-sm font-bold card-border" role="status" aria-live="polite"></p>
+
+        <section class="grid grid-cols-1 gap-5 lg:grid-cols-2" aria-label="Graphiques d’audience">
+            <article class="bg-card-bg p-4 card-border sm:p-6">
+                <h2 class="mb-5 text-lg font-black uppercase">Visites sur 7 jours</h2>
+                <div class="relative h-72 sm:h-96">
+                    <canvas id="visits-chart" aria-label="Graphique des visites sur les sept derniers jours"></canvas>
+                </div>
+            </article>
+            <article class="bg-card-bg p-4 card-border sm:p-6">
+                <h2 class="mb-5 text-lg font-black uppercase">Pages les plus vues</h2>
+                <div class="relative h-72 sm:h-96">
+                    <canvas id="pages-chart" aria-label="Graphique des pages les plus consultées"></canvas>
+                </div>
+            </article>
+        </section>
+    </main>
+</body>
+
+</html>
