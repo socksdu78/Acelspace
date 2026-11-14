@@ -1106,26 +1106,37 @@ app.post('/api/admin/distribution/notify', requireAdmin, async (req, res) => {
             ORDER BY p.commande_ref ASC, p.id ASC
         `).all();
         const orders = new Map();
+        const studentEmailPattern = /\b(?:e[\s-]?mail|mail)\s+(?:enfant|eleve)\s*[:=]\s*([A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+)/gi;
 
         for (const row of rows) {
             const reference = row.commande_ref || `CMD-${String(row.id).padStart(4, '0')}`;
             let order = orders.get(reference);
             if (!order) {
-                order = { reference, parentEmail: '', studentEmail: '' };
+                order = { reference, parentEmail: '', studentEmails: new Set() };
                 orders.set(reference, order);
             }
 
             if (!order.parentEmail) {
-                order.parentEmail = [row.email, row.client_email, row.contact, row.client_contact]
+                const parentEmail = [row.email, row.client_email]
+                    .map(email => normalizeEmail(email))
                     .find(email => isValidEmail(email));
+                if (parentEmail) order.parentEmail = parentEmail;
             }
-            if (!order.studentEmail) {
-                const studentEmail = row.remarques?.match(/^Email enfant:\s*(.+)$/im)?.[1]?.trim();
-                if (isValidEmail(studentEmail)) order.studentEmail = studentEmail;
+
+            const studentEmailSources = [row.remarques, row.contact, row.client_contact];
+            for (const source of studentEmailSources) {
+                if (typeof source !== 'string') continue;
+                const normalizedSource = source.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                for (const match of normalizedSource.matchAll(studentEmailPattern)) {
+                    const studentEmail = normalizeEmail(match[1]);
+                    if (isValidEmail(studentEmail)) order.studentEmails.add(studentEmail);
+                }
             }
         }
 
-        let emailsSent = 0;
+        let ordersNotified = 0;
+        let parentEmailsTargeted = 0;
+        let studentEmailsTargeted = 0;
         let failedCount = 0;
         let skippedCount = 0;
         for (const order of orders.values()) {
@@ -1135,6 +1146,10 @@ app.post('/api/admin/distribution/notify', requireAdmin, async (req, res) => {
                 continue;
             }
 
+            const recipients = [
+                order.parentEmail,
+                ...[...order.studentEmails].filter(email => email !== order.parentEmail)
+            ];
             try {
                 const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(order.reference)}`;
                 const html = `
@@ -1158,22 +1173,29 @@ app.post('/api/admin/distribution/notify', requireAdmin, async (req, res) => {
 </body></html>`;
                 const mail = {
                     from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
-                    to: order.parentEmail,
+                    to: recipients,
                     subject: 'Votre commande Acelspace est prête ! 🚀',
                     html
                 };
-                if (order.studentEmail && order.studentEmail !== order.parentEmail) {
-                    mail.cc = order.studentEmail;
-                }
                 await transporter.sendMail(mail);
-                emailsSent += 1;
+                ordersNotified += 1;
+                parentEmailsTargeted += 1;
+                studentEmailsTargeted += recipients.length - 1;
+                console.info(`Rappel de distribution envoyé pour ${order.reference} aux destinataires : ${recipients.join(', ')}`);
             } catch (error) {
                 failedCount += 1;
                 console.error(`Erreur envoi rappel de distribution pour ${order.reference}:`, error.message);
             }
         }
 
-        return res.json({ success: true, emailsSent, failedCount, skippedCount });
+        return res.json({
+            success: true,
+            ordersNotified,
+            parentEmailsTargeted,
+            studentEmailsTargeted,
+            failedCount,
+            skippedCount
+        });
     } catch (error) {
         console.error('Erreur envoi rappels de distribution:', error);
         return res.status(500).json({ success: false, message: 'Impossible d’envoyer les e-mails de rappel.' });

@@ -224,7 +224,7 @@ Alpine.data('adminApp', () => ({
                 if (response.status === 401) this.authenticated = false;
                 throw new Error(data.message || `HTTP ${response.status}`);
             }
-            const message = `${data.emailsSent} e-mails envoyés avec succès !`;
+            const message = `${data.ordersNotified} commandes notifiées (${data.parentEmailsTargeted} parents et ${data.studentEmailsTargeted} enfants)`;
             const details = data.failedCount || data.skippedCount
                 ? ` (${data.failedCount} échec(s), ${data.skippedCount} commande(s) sans adresse parent valide)`
                 : '';

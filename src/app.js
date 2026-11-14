@@ -53,6 +53,8 @@ Alpine.data('merchApp', () => ({
     selectedTaille: 'Taille unique',
     selectedQuantite: 1,
     noCustomization: false,
+    productPersonalisation: '',
+    productPersonalisationError: '',
     justAddedFeedback: false,
     justAddedTimer: null,
 
@@ -91,7 +93,6 @@ Alpine.data('merchApp', () => ({
         tshirt_prenom: '',
         tshirt_nom: '',
         tshirt_taille: '',
-        personnalisation: '',
         // Remarques libres
         remarques: '',
     },
@@ -464,8 +465,25 @@ Alpine.data('merchApp', () => ({
         this.selectedTaille = (product.sizes && product.sizes.length > 0) ? product.sizes[0] : 'Taille unique';
         this.selectedQuantite = 1;
         this.noCustomization = false;
+        this.productPersonalisation = '';
+        this.productPersonalisationError = '';
         this.justAddedFeedback = false;
         this.isProductModalOpen = true;
+    },
+
+    toggleProductCustomization() {
+        this.noCustomization = !this.noCustomization;
+        this.productPersonalisation = '';
+        this.productPersonalisationError = '';
+    },
+
+    handleProductPersonalisationInput(value) {
+        this.productPersonalisation = value;
+        if (value.trim()) {
+            this.productPersonalisationError = '';
+        } else if (this.productPersonalisationError) {
+            this.productPersonalisationError = 'Veuillez saisir un texte ou cliquer sur Ne pas personnaliser';
+        }
     },
 
     openLightbox(img1, img2 = null, initialIndex = 0) {
@@ -553,15 +571,20 @@ Alpine.data('merchApp', () => ({
             if (prod.sizes && prod.sizes.length > 0 && !prod.sizes.includes(taille)) {
                 taille = prod.sizes[0];
             }
+            const noCustomization = Boolean(
+                (item.noCustomization || legacyNoCustomization)
+                && Number(prod.requires_customization) === 1
+                && Number(prod.allow_no_customization) === 1
+            );
+            const isCustomizable = Number(prod.requires_customization) === 1;
             validCart.push({
                 product_id: item.product_id,
                 taille: taille,
                 quantite: Math.max(1, Math.min(10, parseInt(item.quantite, 10) || 1)),
-                noCustomization: Boolean(
-                    (item.noCustomization || legacyNoCustomization)
-                    && Number(prod.requires_customization) === 1
-                    && Number(prod.allow_no_customization) === 1
-                )
+                noCustomization,
+                personalization: isCustomizable && !noCustomization && typeof item.personalization === 'string'
+                    ? item.personalization
+                    : ''
             });
         }
 
@@ -577,20 +600,33 @@ Alpine.data('merchApp', () => ({
         if (!this.preorderStatus.ouvert) return;
         if (!product || product.price === null) return;
 
-        const qty = parseInt(this.selectedQuantite, 10);
-        if (isNaN(qty) || qty < 1 || qty > 10) {
-            return;
-        }
-
         const taille = this.selectedTaille || 'Taille unique';
         const noCustomization = Boolean(
             this.noCustomization
             && Number(product.requires_customization) === 1
             && Number(product.allow_no_customization) === 1
         );
+        const isCustomizable = Number(product.requires_customization) === 1;
+        const personalization = isCustomizable && !noCustomization
+            ? (this.productPersonalisation || '').trim()
+            : '';
+
+        if (isCustomizable && !noCustomization && !personalization) {
+            this.productPersonalisationError = 'Veuillez saisir un texte ou cliquer sur Ne pas personnaliser';
+            return;
+        }
+        this.productPersonalisationError = '';
+
+        const qty = parseInt(this.selectedQuantite, 10);
+        if (isNaN(qty) || qty < 1 || qty > 10) {
+            return;
+        }
 
         const existingIndex = this.cart.findIndex(i =>
-            i.product_id === product.id && i.taille === taille && Boolean(i.noCustomization) === noCustomization
+            i.product_id === product.id
+            && i.taille === taille
+            && Boolean(i.noCustomization) === noCustomization
+            && (i.personalization || '') === personalization
         );
 
         if (existingIndex > -1) {
@@ -605,7 +641,8 @@ Alpine.data('merchApp', () => ({
                 product_id: product.id,
                 taille: taille,
                 quantite: qty,
-                noCustomization
+                noCustomization,
+                personalization
             });
         }
 
@@ -673,6 +710,7 @@ Alpine.data('merchApp', () => ({
                 product_id: item.product_id,
                 taille: item.taille,
                 noCustomization: item.noCustomization === true,
+                personalization: item.personalization || '',
                 quantite: qty,
                 name: product.name,
                 requiresCustomization: Number(product.requires_customization) === 1,
@@ -722,11 +760,14 @@ Alpine.data('merchApp', () => ({
             return;
         }
 
-        const personnalisation = this.cartRequiresCustomization
-            ? (this.customerInfo.personnalisation || '').trim()
-            : '';
-        if (this.cartRequiresCustomization && !personnalisation) {
-            this.cartError = 'Veuillez renseigner la personnalisation obligatoire pour votre panier.';
+        const hasMissingCustomization = this.cart.some(item => {
+            const product = this.getProductDetails(item.product_id);
+            return Number(product?.requires_customization) === 1
+                && item.noCustomization !== true
+                && !(item.personalization || '').trim();
+        });
+        if (hasMissingCustomization) {
+            this.cartError = 'Veuillez saisir un texte ou cliquer sur Ne pas personnaliser';
             return;
         }
 
@@ -803,7 +844,6 @@ Alpine.data('merchApp', () => ({
                 tshirt_prenom: (this.customerInfo.tshirt_prenom || '').trim(),
                 tshirt_nom: (this.customerInfo.tshirt_nom || '').trim(),
                 tshirt_taille: (this.customerInfo.tshirt_taille || '').trim(),
-                personnalisation,
                 remarques: (this.customerInfo.remarques || '').trim(),
                 notify_price_drops: this.customerInfo.notify_price_drops === true,
                 consentement: true,
@@ -819,7 +859,7 @@ Alpine.data('merchApp', () => ({
                         taille: item.taille,
                         quantite: parseInt(item.quantite, 10),
                         noCustomization: item.noCustomization === true,
-                        personalization: isCustomizable ? personnalisation : null
+                        personalization: isCustomizable ? item.personalization : null
                     };
                 })
             };
@@ -869,7 +909,6 @@ Alpine.data('merchApp', () => ({
             this.customerInfo.tshirt_prenom = '';
             this.customerInfo.tshirt_nom = '';
             this.customerInfo.tshirt_taille = '';
-            this.customerInfo.personnalisation = '';
             this.customerInfo.remarques = '';
             this.customerInfo.notify_price_drops = false;
             this.cartStep = 3;
@@ -893,25 +932,6 @@ Alpine.data('merchApp', () => ({
             return p && (p.type === 'tshirt' || p.product_type === 'tshirt');
         });
     },
-    get cartRequiresCustomization() {
-        return this.cart.some(item => {
-            const product = this.getProductDetails(item.product_id);
-            return product
-                && Number(product.requires_customization) === 1
-                && item.noCustomization !== true;
-        });
-    },
-    get cartCustomizationFields() {
-        const fields = new Set();
-        for (const item of this.cart) {
-            const product = this.getProductDetails(item.product_id);
-            if (!product || Number(product.requires_customization) !== 1 || item.noCustomization === true) continue;
-            const label = (product.customization_fields || '').trim();
-            if (label) fields.add(label);
-        }
-        return [...fields].join(' / ') || 'Informations à personnaliser';
-    },
-
     toggleSearch() {
         this.searchActive = !this.searchActive;
         if (this.searchActive) {
