@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import crypto from 'crypto';
 import XLSX from 'xlsx';
-import db, { formatClientId, normalizeEmail, isValidEmail, normalizePhone, isValidPhone, generateCommandeRef, getCurrentPrice, getClientsForProduct, purgeExpiredPersonalData } from './database.js';
+import db, { formatClientId, normalizeEmail, isValidEmail, normalizePhone, isValidPhone, generateCommandeRef, getCurrentPrice, getClientsForProduct, recalculateAllTierPrices, purgeExpiredPersonalData } from './database.js';
 import { findProduct, getMaxPrice, getTierProgress } from './products.js';
 import nodemailer from 'nodemailer';
 import { scheduleBackups } from './backup.js';
@@ -965,6 +965,7 @@ app.post('/api/precommande', precommandeLimiter, (req, res) => {
                 insertLine.run(clientId, resolvedNom, normEmail, normEmail, normPhone, vl.product.name, vl.taille, vl.qty, vl.linePrice, nowIso, nowIso, vl.product.id, commandeRef, remarquesConsolidees, vl.personnalisation || null, notifyPriceDrops, vl.noCustomization ? 1 : 0, enfantPrenomClean, enfantNomClean);
             }
         })();
+        recalculateAllTierPrices();
 
         // 5. Détecter les changements de palier et notifier (non bloquant)
         ;(async () => {
@@ -1347,6 +1348,7 @@ const updateProduct = (req, res) => {
             );
             if (newFeatured === 1) db.prepare('UPDATE products SET featured = 0 WHERE id != ?').run(id);
         })();
+        recalculateAllTierPrices();
 
         const allProducts = db.prepare('SELECT id, name, price, description, sizes, image, image_url_2, detail_table_image, featured, actif, ordre, date_creation, requires_customization, customization_fields, allow_no_customization FROM products ORDER BY ordre ASC, id ASC').all().map(p => ({ ...p, sizes: JSON.parse(p.sizes || '["Taille unique"]') }));
         return res.json({ success: true, products: allProducts });
@@ -1398,6 +1400,7 @@ app.get('/api/admin/precommandes', requireAdmin, (req, res) => {
             || (status !== undefined && status !== 'all' && !Object.hasOwn(ORDER_STATUS_LABELS, status))) {
             return res.status(400).json({ success: false, message: 'Filtres de recherche invalides.' });
         }
+        recalculateAllTierPrices();
         let query = 'SELECT p.*, c.email as client_email, c.telephone as client_telephone, c.contact_normalise, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN clients c ON p.client_id = c.id LEFT JOIN products pr ON pr.id = p.product_id WHERE 1=1';
         const params = [];
         if (status && status !== 'all') {
@@ -1488,6 +1491,7 @@ app.patch('/api/admin/precommandes/:id/status', requireAdmin, (req, res) => {
         if (result.changes === 0) {
             return res.status(404).json({ success: false, message: 'Commande introuvable.' });
         }
+        recalculateAllTierPrices();
         return res.json({
             success: true,
             status,
@@ -1521,6 +1525,7 @@ app.patch('/api/admin/precommandes/:id/status-all', requireAdmin, (req, res) => 
         if (result.changes === 0) {
             return res.status(404).json({ success: false, message: 'Commande introuvable.' });
         }
+        recalculateAllTierPrices();
 
         return res.json({
             success: true,
@@ -1548,6 +1553,7 @@ const updatePrecommandeByReference = (req, res) => {
         const info = db.prepare('UPDATE precommandes SET statut = ?, status = ? WHERE commande_ref = ?')
             .run(LEGACY_STATUS_BY_ORDER_STATUS[nextStatus], nextStatus, commande_ref);
         if (info.changes === 0) return res.status(404).json({ success: false, message: 'Aucune commande trouvée pour cette référence.' });
+        recalculateAllTierPrices();
         const firstName = order.student_first_name?.trim() || order.nom?.trim().split(/\s+/)[0] || 'Client';
         return res.json({
             success: true,
@@ -1572,6 +1578,7 @@ app.patch('/api/admin/precommandes/:id', requireAdmin, (req, res) => {
         const info = db.prepare('UPDATE precommandes SET statut = ?, status = ? WHERE id = ?')
             .run(statut, ORDER_STATUS_BY_LEGACY_STATUS[statut], id);
         if (info.changes === 0) return res.status(404).json({ success: false, message: 'Précommande non trouvée.' });
+        recalculateAllTierPrices();
         return res.json({ success: true, message: 'Statut mis à jour.' });
     } catch(error) { console.error('Erreur PATCH precommande:', error); return res.status(500).json({ success: false, message: 'Erreur mise à jour.' }); }
 });
@@ -1591,6 +1598,7 @@ app.delete('/api/admin/precommandes/:id', requireAdmin, (req, res) => {
             return { success: true };
         })();
         if (result.notFound) return res.status(404).json({ success: false, message: 'Précommande non trouvée.' });
+        recalculateAllTierPrices();
         return res.json({ success: true, message: 'Précommande supprimée.' });
     } catch(error) { console.error('Erreur DELETE precommande:', error); return res.status(500).json({ success: false, message: 'Erreur suppression.' }); }
 });
@@ -1607,12 +1615,14 @@ app.delete('/api/admin/clients/:id', requireAdmin, (req, res) => {
             return { success: true, clientName: client.nom, count: del.changes };
         })();
         if (result.notFound) return res.status(404).json({ success: false, message: 'Client non trouvé.' });
+        recalculateAllTierPrices();
         return res.json({ success: true, message: 'Client ' + formatClientId(id) + ' (' + result.clientName + ') et ses ' + result.count + ' commande(s) ont été supprimés.' });
     } catch(error) { console.error('Erreur DELETE client RGPD:', error); return res.status(500).json({ success: false, message: 'Erreur suppression client.' }); }
 });
 
 app.get('/api/admin/export', requireAdmin, (req, res) => {
     try {
+        recalculateAllTierPrices();
         const rows = db.prepare('SELECT p.*, c.nom as client_nom, c.email as client_email, c.telephone as client_telephone, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN products pr ON pr.id = p.product_id ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC').all();
         const headers = ['Réf. Commande', 'Date', 'Nom Parent', 'Prénom Parent', 'Email Parent', 'Téléphone Parent', 'Nom Enfant', 'Prénom Enfant', 'Produit', 'Taille', 'Quantité', 'Prix Total', 'Statut', 'Personnalisation', "Remarques (avec adresse mail et téléphone de l'enfant si renseigné)"];
         const csvLines = [headers.join(';')];
@@ -1667,6 +1677,7 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
 
 app.get('/api/admin/export-recap', requireAdmin, (req, res) => {
     try {
+        recalculateAllTierPrices();
         let query = "SELECT produit, taille, SUM(quantite) as quantite_totale, COUNT(*) as nombre_commandes, SUM(prix_estime) as total_estime FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ') AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'";
         query += ' GROUP BY produit COLLATE BINARY, taille COLLATE BINARY ORDER BY produit COLLATE BINARY ASC, taille COLLATE BINARY ASC';
         const rows = db.prepare(query).all();
@@ -1684,7 +1695,9 @@ app.get('/api/admin/export-recap', requireAdmin, (req, res) => {
 
 app.get('/api/admin/print-data', requireAdmin, (req, res) => {
     try {
+        recalculateAllTierPrices();
         let query = "SELECT p.id, p.client_id, p.nom, p.produit, p.taille, p.quantite, p.prix_estime, p.statut, p.status, p.date_creation, p.personnalisation, p.no_customization, p.student_first_name, p.student_last_name, pr.requires_customization as product_requires_customization, c.nom as client_nom FROM precommandes p LEFT JOIN clients c ON p.client_id = c.id LEFT JOIN products pr ON pr.id = p.product_id WHERE COALESCE(UPPER(TRIM(p.status)), '') NOT IN ('ANNULE', 'ANNULÉ')";
+        query += " AND COALESCE(LOWER(TRIM(p.statut)), '') != 'annulee'";
         query += ' ORDER BY COALESCE(c.nom, p.nom) ASC, p.date_creation ASC';
         const rows = db.prepare(query).all();
         const clientMap = new Map();
@@ -1898,6 +1911,7 @@ app.post('/api/admin/price-tiers/:product_id', requireAdmin, uploadLimiter, uplo
             }
             db.prepare('INSERT INTO price_tier_history (product_id, uploaded_at, tiers_json) VALUES (?, ?, ?)').run(product_id, nowIso, JSON.stringify(newTiers));
         })();
+        recalculateAllTierPrices();
 
         // Détecter changement de palier actif et notifier (non bloquant)
         ;(async () => {

@@ -314,7 +314,7 @@ Alpine.data('adminApp', () => ({
             if (this.searchQuery.trim()) params.append('search', this.searchQuery.trim());
 
             const url = `/api/admin/precommandes?${params.toString()}`;
-            const res = await fetch(url);
+            const res = await fetch(url, { cache: 'no-store' });
 
             if (res.status === 401) {
                 this.authenticated = false;

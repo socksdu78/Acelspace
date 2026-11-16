@@ -435,6 +435,68 @@ export function getCurrentPrice(product_id, additional_qty = 0) {
     return { unit_price: tier.unit_price, tier_id: tier.id, qty_total };
 }
 
+/**
+ * Synchronise le montant de toutes les lignes actives avec le palier courant
+ * de chaque produit.
+ *
+ * @returns {{ productsUpdated: number, linesUpdated: number }}
+ */
+export function recalculateAllTierPrices() {
+    const getProducts = db.prepare(`
+        SELECT DISTINCT p.id, p.name
+        FROM products p
+        INNER JOIN price_tiers t ON t.product_id = p.id
+        ORDER BY p.id
+    `);
+    const getQuantity = db.prepare(`
+        SELECT COALESCE(SUM(quantite), 0) AS total
+        FROM precommandes
+        WHERE (product_id = ? OR (product_id IS NULL AND produit = ? COLLATE NOCASE))
+          AND COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ')
+          AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'
+    `);
+    const findTier = db.prepare(`
+        SELECT id, unit_price
+        FROM price_tiers
+        WHERE product_id = ?
+          AND qty_min <= ?
+          AND (qty_max IS NULL OR qty_max >= ?)
+        ORDER BY qty_min DESC, CASE WHEN qty_max IS NULL THEN 1 ELSE 0 END, qty_max ASC, id ASC
+        LIMIT 1
+    `);
+    const findFirstTier = db.prepare(`
+        SELECT id, unit_price
+        FROM price_tiers
+        WHERE product_id = ?
+        ORDER BY qty_min ASC
+        LIMIT 1
+    `);
+    const updatePrices = db.prepare(`
+        UPDATE precommandes
+        SET prix_estime = ROUND(? * quantite, 2)
+        WHERE (product_id = ? OR (product_id IS NULL AND produit = ? COLLATE NOCASE))
+          AND COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ')
+          AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'
+    `);
+
+    return db.transaction(() => {
+        let linesUpdated = 0;
+        let productsUpdated = 0;
+
+        for (const product of getProducts.all()) {
+            const qtyTotal = getQuantity.get(product.id, product.name).total;
+            const tier = findTier.get(product.id, qtyTotal, qtyTotal) || findFirstTier.get(product.id);
+            if (!tier) continue;
+
+            const result = updatePrices.run(tier.unit_price, product.id, product.name);
+            linesUpdated += result.changes;
+            productsUpdated += 1;
+        }
+
+        return { productsUpdated, linesUpdated };
+    })();
+}
+
 // ─── Fonction : Emails clients ayant précommandé un produit ───────────────────
 /**
  * Retourne les emails distincts des clients ayant demandé les notifications
