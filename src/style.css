@@ -39,7 +39,37 @@
 
 body { overflow-wrap: anywhere; }
 
+.hero-card {
+    height: auto;
+}
+
+.mobile-content-clearance {
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.mobile-cart-fab {
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    right: calc(1rem + env(safe-area-inset-right));
+}
+
+@media (max-width: 767px) {
+    .mobile-content-clearance {
+        padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+    }
+}
+
 @media (max-width: 639px) {
+    .hero-title {
+        font-size: clamp(1.75rem, 7.25vw, 1.875rem);
+        line-height: 1.1;
+    }
+
+    .hero-description {
+        font-size: clamp(0.875rem, 3.8vw, 1rem);
+        line-height: 1.5;
+    }
+
     body :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
         font-size: 16px;
     }

@@ -64,7 +64,7 @@
 </head>
 
 <body
-    class="bg-blueprint-grid text-slate-900 font-sans min-h-screen p-3 sm:p-6 md:p-8 lg:p-10 flex flex-col items-center antialiased selection:bg-sky-200 overflow-x-hidden"
+    class="bg-blueprint-grid text-slate-900 font-sans min-h-screen p-3 sm:p-6 md:p-8 lg:p-10 flex flex-col items-center antialiased selection:bg-sky-200 overflow-x-hidden mobile-content-clearance"
     x-data="merchApp()">
 
     <main class="w-full max-w-[1680px] my-auto flex flex-col gap-6 sm:gap-8">
@@ -88,10 +88,10 @@
             <!-- Navigation Box (Right) -->
             <div
                 class="md:col-span-8 bg-card-bg card-border p-3 sm:p-4 lg:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
-                <nav class="flex flex-wrap items-center gap-1 sm:gap-6 lg:gap-10 font-black text-xs sm:text-sm lg:text-lg uppercase tracking-wider text-slate-900">
-                      <button @click="isAboutOpen = true" class="px-2 hover:text-sky-700 transition-colors whitespace-nowrap">À PROPOS</button>
-                      <button @click="isContactOpen = true" class="px-2 hover:text-sky-700 transition-colors">CONTACT</button>
-                      <button @click="openTrackingModal()" class="px-2 hover:text-sky-700 transition-colors whitespace-nowrap">🔍 SUIVRE MA COMMANDE</button>
+                <nav class="grid grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-6 lg:gap-10 font-black text-xs sm:text-sm lg:text-lg uppercase tracking-wider text-slate-900">
+                      <button @click="isAboutOpen = true" class="px-2 py-2 hover:text-sky-700 transition-colors whitespace-nowrap">À PROPOS</button>
+                      <button @click="isContactOpen = true" class="px-2 py-2 hover:text-sky-700 transition-colors whitespace-nowrap">CONTACT</button>
+                      <button @click="openTrackingModal()" class="col-span-2 px-2 py-2 hover:text-sky-700 transition-colors whitespace-nowrap">🔍 SUIVRE MA COMMANDE</button>
                 </nav>
 
                 <div class="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 shrink-0">
@@ -139,12 +139,12 @@
 
             <!-- Hero Description Box (Left) -->
             <div
-                class="md:col-span-8 bg-card-bg card-border p-6 sm:p-10 lg:p-14 flex flex-col justify-center space-y-4 min-h-[220px]">
+                class="hero-card md:col-span-8 bg-card-bg card-border p-5 sm:p-10 lg:p-14 flex h-auto flex-col justify-start sm:justify-center space-y-4 min-h-[220px]">
                 <h1
-                    class="text-3xl sm:text-5xl lg:text-6xl xl:text-7xl font-black tracking-tight text-slate-900 uppercase leading-none">
+                    class="hero-title text-3xl sm:text-5xl lg:text-6xl xl:text-7xl font-black tracking-tight text-slate-900 uppercase leading-tight">
                     Boutique AcelSpace
                 </h1>
-                <p class="break-words text-slate-700 font-bold text-sm sm:text-lg lg:text-xl xl:text-2xl max-w-2xl leading-snug">
+                <p class="hero-description break-words text-slate-700 font-bold text-sm sm:text-lg lg:text-xl xl:text-2xl max-w-2xl leading-relaxed">
                     Découvrez nos goodies aux couleurs du club.<br>
                     Les prix indiqués baissent selon le nombre de commandes.<br>
                     Un e-mail vous sera envoyé pour vous notifier à chaque changement de prix.<br>
@@ -363,7 +363,7 @@
     </main>
 
     <!-- ── FLOATING MOBILE PREORDER BUTTON ─────────────────────────────────── -->
-    <div class="fixed bottom-4 right-4 z-40 md:hidden">
+    <div class="mobile-cart-fab fixed bottom-4 right-4 z-40 md:hidden">
         <template x-if="preorderStatus.ouvert">
             <button @click="openCartModal()"
                 class="px-4 py-3 bg-slate-900 text-white pill-border font-black text-xs uppercase tracking-wider shadow-2xl flex items-center gap-2.5 cursor-pointer active:scale-95 transition-transform">
