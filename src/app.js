@@ -1,4 +1,5 @@
 import Alpine from 'alpinejs';
+import QRCode from 'qrcode';
 
 // ─── Composant Alpine principal (Boutique & Panier de Précommande) ───────────
 
@@ -18,13 +19,13 @@ Alpine.data('merchApp', () => ({
     contactSubmitting: false,
     contactSuccess: '',
     contactError: '',
+    contactTurnstileToken: '',
     isPrivacyModalOpen: false,
     isTrackingModalOpen: false,
     cookieConsentSaved: false,
     cookiePreferencesOpen: false,
     cookiePreferencesError: '',
     cookiePreferences: { essential: true, analytics: false },
-    analyticsScriptLoaded: false,
     trackingEmail: '',
     trackingCode: '',
     trackingReference: '',
@@ -95,6 +96,7 @@ Alpine.data('merchApp', () => ({
         remarques: '',
     },
     rgpdConsent: false,
+    turnstileEnabled: true, // activé par défaut, désactivable via backend (.env TURNSTILE_ENABLED=false)
     turnstileToken: '', // jeton Cloudflare Turnstile (rempli par callback widget)
 
     async init() {
@@ -151,7 +153,6 @@ Alpine.data('merchApp', () => ({
             if (preferences && typeof preferences.analytics === 'boolean') {
                 this.cookiePreferences = { essential: true, analytics: preferences.analytics };
                 this.cookieConsentSaved = true;
-                if (preferences.analytics) this.loadGoogleAnalytics();
             }
         } catch (error) {
             console.error('Impossible de lire les préférences de cookies :', error);
@@ -167,48 +168,11 @@ Alpine.data('merchApp', () => ({
             this.cookieConsentSaved = true;
             this.cookiePreferencesOpen = false;
             this.cookiePreferencesError = '';
-            if (analytics) {
-                this.loadGoogleAnalytics();
-            } else if (this.analyticsScriptLoaded) {
-                window.gtag('consent', 'update', {
-                    analytics_storage: 'denied',
-                    ad_storage: 'denied',
-                    ad_user_data: 'denied',
-                    ad_personalization: 'denied'
-                });
-            }
         } catch (error) {
             console.error('Impossible d’enregistrer les préférences de cookies :', error);
             this.cookieConsentSaved = false;
             this.cookiePreferencesError = 'Impossible d’enregistrer votre choix dans ce navigateur. Vérifiez ses paramètres de stockage.';
         }
-    },
-
-    loadGoogleAnalytics() {
-        if (this.analyticsScriptLoaded) {
-            window.gtag('consent', 'update', {
-                analytics_storage: 'granted',
-                ad_storage: 'denied',
-                ad_user_data: 'denied',
-                ad_personalization: 'denied'
-            });
-            return;
-        }
-
-        const measurementId = 'G-7ZM1FTGJ8N';
-        window.dataLayer = window.dataLayer || [];
-        window.gtag = function () {
-            window.dataLayer.push(arguments);
-        };
-        window.gtag('js', new Date());
-        window.gtag('config', measurementId);
-
-        const script = document.createElement('script');
-        script.async = true;
-        script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
-        script.dataset.analytics = 'ga4';
-        document.head.appendChild(script);
-        this.analyticsScriptLoaded = true;
     },
 
     openCookiePreferences() {
@@ -234,6 +198,12 @@ Alpine.data('merchApp', () => ({
     async submitContact(event) {
         this.contactSuccess = '';
         this.contactError = '';
+
+        if (!this.contactTurnstileToken) {
+            this.contactError = 'Veuillez compléter la vérification anti-bot avant d’envoyer votre message.';
+            return;
+        }
+
         this.contactSubmitting = true;
         const form = event.currentTarget;
         const formData = new FormData(form);
@@ -246,7 +216,8 @@ Alpine.data('merchApp', () => ({
                     nom: formData.get('nom'),
                     prenom: formData.get('prenom'),
                     email: formData.get('email'),
-                    message: formData.get('message')
+                    message: formData.get('message'),
+                    'cf-turnstile-response': this.contactTurnstileToken
                 })
             });
             const data = await response.json();
@@ -255,6 +226,8 @@ Alpine.data('merchApp', () => ({
                 return;
             }
             this.contactSuccess = 'Message envoyé avec succès !';
+            this.contactTurnstileToken = this.turnstileEnabled ? '' : 'DEV_BYPASS';
+            if (window.turnstile) window.turnstile.reset();
             form.reset();
         } catch (error) {
             console.error('Erreur envoi du message de contact :', error);
@@ -377,13 +350,9 @@ Alpine.data('merchApp', () => ({
     },
 
     async renderTrackingQr(element, reference) {
-        if (!window.QRCode || typeof window.QRCode.toCanvas !== 'function') {
-            this.trackingError = 'La génération du QR code est indisponible.';
-            return;
-        }
         try {
             const canvas = document.createElement('canvas');
-            await window.QRCode.toCanvas(canvas, reference, {
+            await QRCode.toCanvas(canvas, reference, {
                 width: 200,
                 margin: 1,
                 color: { dark: '#0f172a', light: '#ffffff' }
@@ -411,6 +380,11 @@ Alpine.data('merchApp', () => ({
                     ouvert: Boolean(data.ouvert),
                     message: data.message || ''
                 };
+                if (data.turnstile_enabled === false) {
+                    this.turnstileEnabled = false;
+                    this.turnstileToken = 'DEV_BYPASS';
+                    this.contactTurnstileToken = 'DEV_BYPASS';
+                }
             }
         } catch (err) {
             console.error('Erreur chargement statut précommandes :', err);
@@ -473,17 +447,6 @@ Alpine.data('merchApp', () => ({
         this.productTshirtTaille = '';
         this.justAddedFeedback = false;
         this.isProductModalOpen = true;
-    },
-
-    toggleProductCustomization() {
-        this.noCustomization = !this.noCustomization;
-        this.productPersonalisation = '';
-        this.productUsbPrenom = '';
-        this.productUsbNom = '';
-        this.productTshirtPrenom = '';
-        this.productTshirtNom = '';
-        this.productTshirtTaille = '';
-        this.productPersonalisationError = '';
     },
 
     handleProductPersonalisationInput(value) {
@@ -585,6 +548,7 @@ Alpine.data('merchApp', () => ({
             const noCustomization = Boolean(
                 (item.noCustomization || legacyNoCustomization)
                 && !isUsb
+                && !isTshirt
                 && Number(prod.requires_customization) === 1
                 && Number(prod.allow_no_customization) === 1
             );
@@ -623,6 +587,7 @@ Alpine.data('merchApp', () => ({
         const isTshirt = this.getProductType(product) === 'tshirt';
         const noCustomization = Boolean(
             !isUsb
+            && !isTshirt
             && this.noCustomization
             && Number(product.requires_customization) === 1
             && Number(product.allow_no_customization) === 1
@@ -835,7 +800,6 @@ Alpine.data('merchApp', () => ({
         const hasMissingTshirtMarking = this.cart.some(item => {
             const product = this.getProductDetails(item.product_id);
             return this.getProductType(product) === 'tshirt'
-                && item.noCustomization !== true
                 && (!(item.tshirt_prenom || '').trim()
                     || !(item.tshirt_nom || '').trim()
                     || !['S', 'M', 'L', 'XL', '2XL', '3XL'].includes(item.tshirt_taille));
@@ -982,7 +946,7 @@ Alpine.data('merchApp', () => ({
 
             this.clearCart();
             this.rgpdConsent = false;
-            this.turnstileToken = '';
+            this.turnstileToken = this.turnstileEnabled ? '' : 'DEV_BYPASS';
             if (window.turnstile) window.turnstile.reset();
             this.customerInfo.enfant_prenom = '';
             this.customerInfo.enfant_nom = '';
@@ -1039,5 +1003,17 @@ window.onTurnstileExpired = function() {
   const el = document.querySelector("[x-data*=\"merchApp\"]");
   if (el && el._x_dataStack && el._x_dataStack[0]) {
     el._x_dataStack[0].turnstileToken = "";
+  }
+};
+window.onContactTurnstileResolved = function(token) {
+  const el = document.querySelector("[x-data*=\"merchApp\"]");
+  if (el && el._x_dataStack && el._x_dataStack[0]) {
+    el._x_dataStack[0].contactTurnstileToken = token;
+  }
+};
+window.onContactTurnstileExpired = function() {
+  const el = document.querySelector("[x-data*=\"merchApp\"]");
+  if (el && el._x_dataStack && el._x_dataStack[0]) {
+    el._x_dataStack[0].contactTurnstileToken = "";
   }
 };

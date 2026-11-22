@@ -31,6 +31,9 @@ function escapeHtml(value) {
 
 // ─── Cloudflare Turnstile — vérification anti-bot côté serveur ───────────────
 async function verifyTurnstileToken(token, remoteIp) {
+    if (process.env.TURNSTILE_ENABLED === 'false') {
+        return true; // Désactivé explicitement pour le développement local
+    }
     if (!token) return false;
     const secret = process.env.TURNSTILE_SECRET_KEY;
     if (!secret) {
@@ -324,16 +327,16 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             baseUri: ["'self'"],
-            connectSrc: ["'self'", 'https://challenges.cloudflare.com', 'https://www.google-analytics.com', 'https://region1.google-analytics.com', 'https://analytics.google.com'],
-            fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+            connectSrc: ["'self'", 'https://challenges.cloudflare.com'],
+            fontSrc: ["'self'", 'data:'],
             formAction: ["'self'"],
             frameAncestors: ["'none'"],
-            imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co', 'https://www.google-analytics.com'],
+            imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co'],
             objectSrc: ["'none'"],
             scriptSrc: ["'self'", "'unsafe-eval'", 'https://challenges.cloudflare.com'],
             frameSrc: ["'self'", 'https://challenges.cloudflare.com'],
             scriptSrcAttr: ["'none'"],
-            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            styleSrc: ["'self'", "'unsafe-inline'"],
             upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
         }
     },
@@ -449,6 +452,7 @@ const trackingLocks = new Map();
 const adminSessions = new Map();
 const ADMIN_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const isProd = process.env.NODE_ENV === 'production';
+const contactLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 5 : 100, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de messages envoyés. Réessayez dans 15 minutes.' } });
 const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 5 : 100, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' } });
 const uploadLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 60 : 500, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes upload. Réessayez plus tard.' } });
 
@@ -638,6 +642,60 @@ function validateProductBody(body, isNew = false) {
 
 // ─── Routes Publiques
 
+app.post('/api/contact', contactLimiter, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const body = req.body || {};
+
+    // 0. Vérification anti-bot Cloudflare Turnstile
+    const turnstileToken = body['cf-turnstile-response'];
+    const captchaOk = await verifyTurnstileToken(turnstileToken, req.ip);
+    if (!captchaOk) {
+        return res.status(400).json({ success: false, message: 'Vérification anti-bot échouée. Veuillez réessayer.' });
+    }
+
+    if (hasInvalidTextFields(body, { nom: 100, prenom: 100, email: 254, message: 5000 })) {
+        return res.status(400).json({ success: false, message: 'Les informations saisies sont invalides.' });
+    }
+
+    const nom = typeof body.nom === 'string' ? body.nom.trim().replace(/\s+/g, ' ') : '';
+    const prenom = typeof body.prenom === 'string' ? body.prenom.trim().replace(/\s+/g, ' ') : '';
+    const email = typeof body.email === 'string' ? normalizeEmail(body.email.trim()) : '';
+    const message = typeof body.message === 'string' ? body.message.trim() : '';
+
+    if (!nom || !prenom || !message || !isValidEmail(email)) {
+        return res.status(400).json({ success: false, message: 'Veuillez renseigner tous les champs avec une adresse e-mail valide.' });
+    }
+
+    const transporter = createMailTransporter();
+    if (!transporter) {
+        return res.status(503).json({ success: false, message: 'Le formulaire de contact est temporairement indisponible.' });
+    }
+
+    const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br>');
+
+    try {
+        await Promise.all([
+            transporter.sendMail({
+                from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
+                to: email,
+                subject: 'Confirmation de réception de votre message - AcelSpace',
+                html: `Votre message a bien été envoyé. Nous vous recontacterons sur cette adresse e-mail dans les plus brefs délais.<br><br>Rappel de votre message :<br><i>${safeMessage}</i>`
+            }),
+            transporter.sendMail({
+                from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
+                to: process.env.CONTACT_EMAIL || process.env.GMAIL_USER || 'contact@acelspace.fr',
+                subject: `Nouveau message de contact : ${nom} ${prenom}`,
+                text: `Nom : ${nom}\nPrénom : ${prenom}\nEmail de contact : ${email}\n\nMessage :\n${message}`
+            })
+        ]);
+    } catch (error) {
+        console.error('Erreur envoi du formulaire de contact :', error);
+        return res.status(500).json({ success: false, message: 'Impossible d’envoyer votre message pour le moment. Veuillez réessayer plus tard.' });
+    }
+
+    return res.json({ success: true });
+});
+
 /** GET /api/products — produits actifs + prix dynamique si grille définie */
 app.get('/api/products', (req, res) => {
     try {
@@ -670,7 +728,12 @@ app.get('/api/precommandes/status', (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
         const rowOuvert = db.prepare("SELECT valeur FROM settings WHERE cle = 'precommandes_ouvertes'").get();
         const rowMsg = db.prepare("SELECT valeur FROM settings WHERE cle = 'message_fermeture'").get();
-        return res.json({ ouvert: rowOuvert ? rowOuvert.valeur === '1' : true, message: rowMsg ? rowMsg.valeur : 'Les précommandes sont terminées. Merci !' });
+        const turnstileEnabled = process.env.TURNSTILE_ENABLED !== 'false';
+        return res.json({
+            ouvert: rowOuvert ? rowOuvert.valeur === '1' : true,
+            message: rowMsg ? rowMsg.valeur : 'Les précommandes sont terminées. Merci !',
+            turnstile_enabled: turnstileEnabled
+        });
     } catch(error) {
         console.error('Erreur status:', error);
         return res.status(500).json({ success: false, message: 'Erreur statut.' });
@@ -977,6 +1040,9 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
             const isTshirt = productType === 'tshirt';
             if (isUsb && noCustomization) {
                 return res.status(400).json({ success: false, message: 'La gravure est obligatoire pour une clé USB.' });
+            }
+            if (isTshirt && noCustomization) {
+                return res.status(400).json({ success: false, message: 'Le marquage est obligatoire pour un T-shirt.' });
             }
             if (isUsb && typeof item.personalization === 'string' && item.personalization.length > 101) {
                 return res.status(400).json({ success: false, message: 'La gravure USB ne peut pas dépasser 50 caractères par champ.' });

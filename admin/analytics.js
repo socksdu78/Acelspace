@@ -1,3 +1,5 @@
+import Chart from 'chart.js/auto';
+
 const statusElement = document.getElementById('analytics-status');
 
 function showStatus(message, isError = false) {

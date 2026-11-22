@@ -10,16 +10,20 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
 ## 1. Stack Technique & Architecture
 
 - **Bundler & Dev Server** : Vite 8+ (vanilla JS, pas de React/JSX).
-- **CSS** : Tailwind CSS v4 (`@tailwindcss/vite`) + Google Fonts (Inter).
+- **CSS** : Tailwind CSS v4 (`@tailwindcss/vite`) + polices Inter hébergées localement (`public/fonts/`).
 - **Logique UI & État réactif** : Alpine.js v3 (npm).
 - **Backend** : Express 5 + SQLite (`better-sqlite3` en mode WAL), dans `backend/`, séparé du front. En dev, Vite proxifie `/api` et `/uploads` vers Express.
 - **Structure des fichiers** :
-  - `index.html` : structure HTML sémantique, modales (produit, panier, suivi, contact) et styles critiques anti-FOUC dans `<head>`.
+  - `index.html` : structure HTML principale allégée (~400 lignes), intégrant les modales via des partiels (`<include src="src/components/..." />`).
+  - `src/components/` : partiels HTML compilés dans `index.html` par `htmlPartials()` (`cart-modal.html`, `contact-modal.html`, `tracking-modal.html`, `product-modal.html`, `privacy-modal.html`, `about-modal.html`, `cookies-banner.html`, `lightbox.html`).
   - `admin.html` : panel d'administration complet (gestion des commandes, produits, paliers, logo, exports).
   - `admin-print.html` : vue d'impression épurée A4 pour la remise des commandes.
   - `src/app.js` : état réactif Alpine `merchApp()` (catalogue, panier multi-articles, modales, précommande, suivi OTP, contact).
+  - `src/components/` : partiels HTML compilés dans `index.html` par le plugin `htmlPartials()` de `vite.config.js` ; callbacks Turnstile uniquement dans `src/app.js`.
+  - `src/main.js` : point d'entrée de la boutique ; importe `src/app.js`.
   - `src/admin.js` : état réactif Alpine du panel admin (authentification, filtres, statuts, upload XLSX/images, gestion boutique).
-  - `src/style.css` : import Tailwind v4, `@theme`, classes utilitaires (`.card-border`, `.pill-border`, `.bg-blueprint-grid`) et animation fusée.
+  - `src/style.css` : import Tailwind v4, polices locales, `@theme`, classes utilitaires (`.card-border`, `.pill-border`, `.bg-blueprint-grid`) et animation fusée.
+  - `admin/analytics.js` et `admin/scanner.js` : modules d'administration avec Chart.js et Html5Qrcode regroupés localement par Vite.
   - `backend/server.js` : serveur Express, middleware de sécurité, limitation de débit, gestionnaires d'API.
   - `backend/database.js` : instance SQLite, schémas, migrations et fonctions utilitaires.
   - `backend/products.js` : helpers de consultation du catalogue et de progression des paliers.
@@ -51,6 +55,7 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
 ## 3. Typographie
 
 - **Famille** : `Inter`, fallback `system-ui, -apple-system, sans-serif`. Aucune autre police.
+- **Hébergement local (RGPD)** : les polices Inter sont servies localement depuis `/fonts/Inter-VariableFont_opsz,wght.ttf` (aucun appel externe vers Google Fonts).
 - **Titres (H1, "CLUB", badges)** : `font-black` (900), majuscules, `tracking-tight`.
 - **Noms de produits / navigation / labels** : `font-bold` à `font-black`, majuscules.
 - **Descriptions courantes** : `font-medium`, casse normale.
@@ -178,7 +183,7 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
 > Ces règles de sécurité sont impératives. Aucun contournement n'est toléré.
 
 1. **Confidentialité absolue des données personnelles (PII)** :
-   - Il est formellement interdit d'envoyer des données personnelles (noms, prénoms, emails, téléphones, montants) vers des services de notification ou des canaux tiers publics ou non authentifiés. L'ancienne intégration ntfy.sh a été totalement supprimée pour cette raison.
+   - Les notifications `ntfy` autorisées par `NTFY_URL` ne contiennent qu'un message générique de nouvelle précommande. Aucun nom, prénom, email, téléphone, produit, référence ou montant ne doit y être envoyé.
    - Les données personnelles restent strictement confinées à la base de données interne et aux emails transactionnels officiels (`nodemailer`).
 2. **Échappement HTML systématique (Anti-Injection / Anti-XSS)** :
    - Toute donnée fournie par un utilisateur qui est injectée dans un gabarit HTML (notamment dans les emails transactionnels `sendConfirmationEmail` et `sendTierChangeEmail`) **doit obligatoirement être assainie via `escapeHtml()`**.
@@ -192,12 +197,27 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
    - Aucun secret, mot de passe, hash ni clé d'API ne doit figurer dans le dépôt. Seul `.env.example` avec des clés vides ou factices est versionné.
    - Ne jamais coder d'adresse email personnelle en dur dans les fichiers applicatifs (utiliser `process.env.CONTACT_EMAIL || process.env.GMAIL_USER`).
 7. **Protection anti-bot Cloudflare Turnstile** :
-   - Widget intégré dans l'étape 2 (informations client) de la modale panier (`index.html`), juste avant le bouton de soumission.
-   - Variables d'environnement : `TURNSTILE_SITE_KEY` (frontend, dans le HTML) et `TURNSTILE_SECRET_KEY` (backend, jamais exposé côté client).
-   - Fonction `verifyTurnstileToken(token, remoteIp)` dans `backend/server.js` : POST vers `https://challenges.cloudflare.com/turnstile/v0/siteverify`. Retourne `true` si `data.success === true`, ou si `TURNSTILE_SECRET_KEY` est absent (dégradation gracieuse pour dev).
-   - Route protégée : `POST /api/precommande` — vérification en toute première étape, avant toute validation des champs ou traitement email. Réponse `400` si jeton manquant ou invalide.
-   - Frontend (`src/app.js`) : état `turnstileToken` dans `merchApp()`. Callbacks globaux `window.onTurnstileResolved` / `window.onTurnstileExpired` connectent le widget à l'état Alpine. Bouton de soumission désactivé tant que `turnstileToken` est vide. Jeton réinitialisé après soumission réussie (`window.turnstile.reset()`).
-   - En production : remplacer les clés de test Cloudflare par de vraies clés obtenues sur `dash.cloudflare.com`.
+   - Widget intégré dans l'étape 2 (informations client) de la modale panier (`src/components/cart-modal.html`) et dans la modale contact (`src/components/contact-modal.html`), juste avant les boutons de soumission.
+   - Variables d'environnement : `TURNSTILE_ENABLED` (mettre à `false` en local pour désactiver totalement le captcha et masquer les widgets) et `TURNSTILE_SECRET_KEY` (backend, jamais exposé côté client). Les deux widgets utilisent la clé publique de production définie dans `src/components/cart-modal.html` et `src/components/contact-modal.html`.
+   - Fonction `verifyTurnstileToken(token, remoteIp)` dans `backend/server.js` : retourne immédiatement `true` si `TURNSTILE_ENABLED=false` ou `TURNSTILE_SECRET_KEY` absent. Sinon, POST vers `https://challenges.cloudflare.com/turnstile/v0/siteverify`.
+   - Routes protégées : `POST /api/precommande` (validation commande) et `POST /api/contact` (formulaire de contact) — vérification en toute première étape, avant tout traitement ou envoi d'email. Réponse `400` si jeton manquant ou invalide.
+   - Frontend (`src/app.js`) : état `turnstileEnabled` alimenté par l'API `/api/precommandes/status`. Si désactivé, le bouton n'est jamais bloqué et le widget est masqué.
+   - En production : activer `TURNSTILE_ENABLED=true` et conserver la clé publique de production ; la clé secrète doit être configurée côté serveur depuis `dash.cloudflare.com`.
+8. **Hébergement local strict des ressources & Zéro fuite d'adresses IP (RGPD)** :
+   - **Interdiction formelle de charger des polices, scripts ou styles depuis des CDNs externes non consentis** (ex: interdiction absolue de Google Fonts).
+   - Toutes les polices (famille *Inter*) sont obligatoirement auto-hébergées en local dans `/fonts/` (`public/fonts/`).
+   - Aucun traceur publicitaire ou outil de mesure d'audience tiers ne doit être injecté sur le site. Turnstile est le seul service tiers chargé à des fins de sécurité et son traitement technique est décrit dans la politique de confidentialité.
+9. **Consentement explicite & Traçabilité (Art. 6 & 7 du RGPD)** :
+   - Tout formulaire collectant des données à caractère personnel (notamment la précommande) impose une case à cocher explicite, obligatoire et **non pré-cochée**.
+   - Le consentement doit être enregistré avec horodatage strict côté serveur (`date_consentement`).
+10. **Durée de conservation & Purge automatique (Droit à l'oubli)** :
+    - Les données personnelles opérationnelles ne doivent jamais être conservées au-delà de 3 ans.
+    - La fonction `purgeExpiredPersonalData()` dans `backend/database.js` doit impérativement être maintenue et exécutée avant chaque cycle de sauvegarde quotidienne (`backend/backup.js`).
+    - L'administration doit conserver sa route de suppression intégrale (`DELETE /api/admin/clients/:id`) garantissant l'effacement de l'ensemble des données d'un client et de ses commandes sans orphelin.
+11. **Gestion des cookies conforme aux référentiels CNIL** :
+    - Le refus de traceur doit être aussi simple que l'acceptation.
+    - Le gestionnaire de préférences de cookies doit rester réouvrable et modifiable à tout moment depuis le pied de page du site.
+    - Les documents légaux ([`politique-confidentialite.html`](file:///C:/Users/lucas/Downloads/Acelspace/politique-confidentialite.html) et [`mentions-legales.html`](file:///C:/Users/lucas/Downloads/Acelspace/mentions-legales.html)) doivent demeurer parfaitement alignés avec les traitements réels.
 
 ---
 
@@ -215,8 +235,8 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
 - **Suppression du code mort** :
   - Tout getter, fonction, variable ou branche conditionnelle qui n'est plus reliée ou qui se base sur des propriétés inexistantes doit être soit correctement connectée, soit supprimée pour éviter d'induire en erreur les futures interventions.
 - **Validation avant livraison** :
-  - Exécuter les tests unitaires et d'intégrité logicielle (`node scratch/test-suite.mjs`).
-  - Vérifier systématiquement que la commande `npm run build` s'exécute avec succès (0 erreur, 0 avertissement bloquant).
+  - N'exécuter les scripts de test qu'après avoir confirmé qu'ils utilisent une base isolée ; ne jamais lancer un test, une migration ou une commande susceptible d'écrire dans `backend/data/precommandes.sqlite`.
+  - Vérifier systématiquement que `npm run build` s'exécute avec succès (0 erreur, 0 avertissement bloquant).
 
 ---
 
@@ -225,9 +245,12 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
 - [ ] Nom écrit rigoureusement **AcelSpace** partout.
 - [ ] Fond `#f6f3eb` (`bg-card-bg`) pour les blocs, bordures nettes `2px` ou `2.5px solid #111827`.
 - [ ] Typographie `Inter` exclusive, majuscules pour les titres et labels.
+- [ ] Polices hébergées en local (`/fonts/`), zéro appel externe vers Google Fonts ou CDN tiers.
 - [ ] Aucune donnée personnelle envoyée sur un canal public tiers.
 - [ ] Tout texte utilisateur inséré dans un email est échappé avec `escapeHtml()`.
 - [ ] Validation stricte des données côté serveur ET côté client.
+- [ ] Consentement RGPD obligatoire, non pré-coché et horodaté.
+- [ ] Purge automatique des données expirées (> 3 ans) maintenue.
 - [ ] Les paliers XLSX acceptent les grilles continues et discrètes.
 - [ ] Détection propre des personnalisations d'articles sans propriété fantôme.
 - [ ] Zéro altération de la BDD : 100 % de compatibilité avec la base existante préservée.

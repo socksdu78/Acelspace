@@ -1,3 +1,5 @@
+import { Html5Qrcode } from 'html5-qrcode';
+
 const messageElement = document.getElementById('scan-message');
 const errorElement = document.getElementById('scanner-error');
 let scanner;
@@ -77,9 +79,6 @@ async function initializeScanner() {
         if (!data.authenticated) {
             window.location.assign('/admin.html');
             return;
-        }
-        if (typeof Html5Qrcode === 'undefined') {
-            throw new Error('La librairie de scan est indisponible. Rechargez la page pour réessayer.');
         }
         await startScanner();
     } catch (error) {
