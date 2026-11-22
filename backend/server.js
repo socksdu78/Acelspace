@@ -16,6 +16,41 @@ import { findProduct, getMaxPrice, getTierProgress } from './products.js';
 import nodemailer from 'nodemailer';
 import { scheduleBackups } from './backup.js';
 
+dotenv.config();
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[char]);
+}
+
+// ─── Cloudflare Turnstile — vérification anti-bot côté serveur ───────────────
+async function verifyTurnstileToken(token, remoteIp) {
+    if (!token) return false;
+    const secret = process.env.TURNSTILE_SECRET_KEY;
+    if (!secret) {
+        console.warn('[Turnstile] TURNSTILE_SECRET_KEY non configuré — vérification ignorée');
+        return true; // dégradation gracieuse si clé absente en dev
+    }
+    try {
+        const verifyRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ secret, response: token, remoteip: remoteIp || '' }).toString()
+        });
+        const data = await verifyRes.json();
+        return data.success === true;
+    } catch (e) {
+        console.error('[Turnstile] Erreur de vérification :', e);
+        return false;
+    }
+}
+
 function cleanPersonalization(value) {
     if (typeof value !== 'string') return '';
     const cleaned = value.trim();
@@ -34,14 +69,36 @@ function createMailTransporter() {
     });
 }
 
+async function sendAnonymousPreorderNotification() {
+    const ntfyUrl = process.env.NTFY_URL?.trim();
+    if (!ntfyUrl) return;
+
+    try {
+        const response = await fetch(ntfyUrl, {
+            method: 'POST',
+            body: 'Nouvelle précommande enregistrée',
+            signal: AbortSignal.timeout(4000),
+        });
+        if (!response.ok) {
+            console.error(`[ntfy] Échec de la notification (HTTP ${response.status}).`);
+        }
+    } catch (error) {
+        console.error('[ntfy] Échec de la notification :', error?.name || 'erreur inconnue');
+    }
+}
+
 async function sendConfirmationEmail({ to, commandeRef, parentNom, enfantNom, lignes, total }) {
     const transporter = createMailTransporter();
     if (!transporter) return { sent: false, reason: 'Email non configuré' };
     try {
+        const safeParentNom = escapeHtml(parentNom);
+        const safeEnfantNom = escapeHtml(enfantNom);
+        const safeCommandeRef = escapeHtml(commandeRef);
+
         const lignesHtml = lignes.map(vl => `
             <tr>
-                <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${vl.product.name}</td>
-                <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center">${vl.taille}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${escapeHtml(vl.product.name)}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center">${escapeHtml(vl.taille)}</td>
                 <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center">${vl.qty}</td>
                 <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${vl.linePrice.toFixed(2).replace('.', ',')} €</td>
             </tr>`).join('');
@@ -55,13 +112,13 @@ async function sendConfirmationEmail({ to, commandeRef, parentNom, enfantNom, li
         <p style="color:#bce0ec;font-size:12px;margin:4px 0 0;font-weight:700;text-transform:uppercase">Confirmation de précommande</p>
     </div>
     <div style="padding:24px">
-        <p style="font-size:13px;color:#334155;font-weight:700">Bonjour <strong>${parentNom}</strong>,</p>
+        <p style="font-size:13px;color:#334155;font-weight:700">Bonjour <strong>${safeParentNom}</strong>,</p>
         <p style="font-size:13px;color:#334155">Votre précommande a bien été enregistrée. Le club vous recontactera dès que vos articles seront prêts.</p>
         <div style="background:#fff;border:2px solid #111827;border-radius:6px;padding:12px;margin:16px 0">
             <p style="font-size:10px;font-weight:900;text-transform:uppercase;color:#6b7280;margin:0 0 6px">Référence commande</p>
-            <p style="font-size:16px;font-weight:900;color:#111827;margin:0;letter-spacing:1px">${commandeRef}</p>
+            <p style="font-size:16px;font-weight:900;color:#111827;margin:0;letter-spacing:1px">${safeCommandeRef}</p>
         </div>
-        ${enfantNom ? `<p style="font-size:12px;color:#334155;font-weight:700">Enfant concerné : <strong>${enfantNom}</strong></p>` : ''}
+        ${safeEnfantNom ? `<p style="font-size:12px;color:#334155;font-weight:700">Enfant concerné : <strong>${safeEnfantNom}</strong></p>` : ''}
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:12px">
             <thead>
                 <tr style="background:#111827;color:#f6f3eb">
@@ -128,16 +185,17 @@ async function sendTierChangeEmail(product_id, old_price, new_price) {
         const newTotal = Math.round(new_price * qty * 100) / 100;
         const direction = new_price < old_price ? '📉 Bonne nouvelle' : '📈 Mise à jour';
 
+        const safeProductName = escapeHtml(product.name);
         const html = `
 <!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"></head>
 <body style="font-family:Inter,system-ui,sans-serif;background:#bce0ec;margin:0;padding:24px">
 <div style="max-width:560px;margin:0 auto;background:#f6f3eb;border:2.5px solid #111827;border-radius:8px;overflow:hidden">
     <div style="background:#111827;padding:20px 24px">
         <h1 style="color:#f6f3eb;font-weight:900;font-size:22px;margin:0;text-transform:uppercase;letter-spacing:-0.5px">AcelSpace</h1>
-        <p style="color:#bce0ec;font-size:12px;margin:4px 0 0;font-weight:700;text-transform:uppercase">Changement de prix — ${product.name}</p>
+        <p style="color:#bce0ec;font-size:12px;margin:4px 0 0;font-weight:700;text-transform:uppercase">Changement de prix — ${safeProductName}</p>
     </div>
     <div style="padding:24px">
-        <p style="font-size:13px;color:#334155;font-weight:700">${direction} : le prix unitaire de <strong>${product.name}</strong> vient de changer.</p>
+        <p style="font-size:13px;color:#334155;font-weight:700">${direction} : le prix unitaire de <strong>${safeProductName}</strong> vient de changer.</p>
         <div style="background:#fff;border:2px solid #111827;border-radius:6px;padding:16px;margin:16px 0;text-align:center">
             <p style="margin:0 0 8px;font-size:11px;font-weight:900;text-transform:uppercase;color:#6b7280">Ancien prix</p>
             <p style="margin:0 0 16px;font-size:22px;font-weight:900;color:#6b7280;text-decoration:line-through">${old_price.toFixed(2).replace('.', ',')} €</p>
@@ -160,7 +218,7 @@ async function sendTierChangeEmail(product_id, old_price, new_price) {
             await transporter.sendMail({
                 from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
                 to: email,
-                subject: `AcelSpace — Nouveau prix pour ${product.name}`,
+                subject: `AcelSpace — Nouveau prix pour ${safeProductName}`,
                 html,
             });
         } catch (err) {
@@ -173,20 +231,27 @@ async function sendTierChangeEmail(product_id, old_price, new_price) {
         .run(product_id, current.tier_id, new Date().toISOString());
 }
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 let distributionModeActive = false;
 const PORT = process.env.PORT || 3000;
-const COOKIE_SECRET = process.env.COOKIE_SECRET;
+let COOKIE_SECRET = process.env.COOKIE_SECRET;
 if (!COOKIE_SECRET || COOKIE_SECRET.length < 32) {
-    throw new Error('COOKIE_SECRET must be configured with at least 32 random characters.');
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('COOKIE_SECRET must be configured with at least 32 random characters in production.');
+    }
+    COOKIE_SECRET = 'dev-secret-acelspace-development-key-32chars!';
+    console.warn('[DEV] COOKIE_SECRET non configuré : utilisation d’une clé par défaut pour le développement.');
 }
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
+let ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
 if (!ADMIN_PASSWORD_HASH || !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(ADMIN_PASSWORD_HASH)) {
-    throw new Error('ADMIN_PASSWORD_HASH must be configured with a valid bcrypt hash.');
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('ADMIN_PASSWORD_HASH must be configured with a valid bcrypt hash in production.');
+    }
+    // Hash bcrypt de 'admin123'
+    ADMIN_PASSWORD_HASH = '$2b$10$ZOMPmu1hE4eyqFduqPKZje4RtoMHNocBjuztbZ6VTVZuhAvK/WnW.';
+    console.warn('[DEV] ADMIN_PASSWORD_HASH non configuré : mot de passe admin par défaut "admin123".');
 }
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN;
 if (process.env.NODE_ENV === 'production' && !PUBLIC_ORIGIN) {
@@ -207,7 +272,7 @@ app.use(helmet({
             frameAncestors: ["'none'"],
             imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co', 'https://www.google-analytics.com'],
             objectSrc: ["'none'"],
-            scriptSrc: ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://www.googletagmanager.com'],
+            scriptSrc: ["'self'", "'unsafe-eval'"],
             scriptSrcAttr: ["'none'"],
             styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
             upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
@@ -283,27 +348,57 @@ app.use('/api', (req, res, next) => {
     return next();
 });
 
-// ─── Uploads directory
+// ─── Uploads directories (mirrored in backend/uploads, root uploads, and public/uploads)
 const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const rootUploadsDir = path.resolve(__dirname, '../uploads');
+const publicUploadsDir = path.resolve(__dirname, '../public/uploads');
+
+for (const dir of [uploadsDir, rootUploadsDir, publicUploadsDir]) {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function saveUploadedFile(filename, buffer) {
+    for (const dir of [uploadsDir, rootUploadsDir, publicUploadsDir]) {
+        try {
+            fs.writeFileSync(path.join(dir, filename), buffer);
+        } catch (e) {
+            console.error(`Erreur écriture dans ${dir}:`, e);
+        }
+    }
+}
+
+function removeUploadedFile(filename) {
+    if (!filename) return;
+    for (const dir of [uploadsDir, rootUploadsDir, publicUploadsDir]) {
+        try {
+            const p = path.join(dir, path.basename(filename));
+            if (fs.existsSync(p)) fs.unlinkSync(p);
+        } catch (e) {
+            console.error(`Erreur suppression dans ${dir}:`, e);
+        }
+    }
+}
+
 app.use('/uploads', express.static(uploadsDir, { dotfiles: 'deny', index: false }));
+app.use('/uploads', express.static(rootUploadsDir, { dotfiles: 'deny', index: false }));
 
 // ─── Rate Limiters
 const precommandeLimiter = rateLimit({ windowMs: 15*60*1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes. Veuillez réessayer dans quelques minutes.' } });
 const otpLimiter = rateLimit({ windowMs: 15*60*1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes de suivi. Réessayez dans 15 minutes.' } });
-const contactLimiter = rateLimit({ windowMs: 15*60*1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de messages envoyés. Réessayez dans 15 minutes.' } });
 const trackingChallenges = new Map();
 const trackingLocks = new Map();
 const adminSessions = new Map();
 const ADMIN_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
-const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' } });
-const uploadLimiter = rateLimit({ windowMs: 15*60*1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes upload. Réessayez plus tard.' } });
+const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 5 : 100, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' } });
+const uploadLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 60 : 500, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes upload. Réessayez plus tard.' } });
 
 // ─── Image upload : multer + magic bytes validation
 function checkMagicBytes(buffer) {
+    if (!buffer || buffer.length < 4) return null;
     if (buffer[0]===0xFF&&buffer[1]===0xD8&&buffer[2]===0xFF) return 'image/jpeg';
     if (buffer[0]===0x89&&buffer[1]===0x50&&buffer[2]===0x4E&&buffer[3]===0x47) return 'image/png';
-    if (buffer[0]===0x52&&buffer[1]===0x49&&buffer[2]===0x46&&buffer[3]===0x46&&buffer[8]===0x57&&buffer[9]===0x45&&buffer[10]===0x42&&buffer[11]===0x50) return 'image/webp';
+    if (buffer.length >= 12 && buffer[0]===0x52&&buffer[1]===0x49&&buffer[2]===0x46&&buffer[3]===0x46&&buffer[8]===0x57&&buffer[9]===0x45&&buffer[10]===0x42&&buffer[11]===0x50) return 'image/webp';
+    if (buffer[0]===0x47&&buffer[1]===0x49&&buffer[2]===0x46&&buffer[3]===0x38) return 'image/gif';
     return null;
 }
 
@@ -315,10 +410,13 @@ function checkXlsxMagicBytes(buffer) {
 
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 2*1024*1024, fields: 30, fieldSize: 10*1024, parts: 32 },
+    limits: { fileSize: 10*1024*1024, fields: 30, fieldSize: 10*1024, parts: 32 },
     fileFilter: (req, file, cb) => {
-        const allowed = ['image/jpeg','image/png','image/webp'];
-        if (!allowed.includes(file.mimetype)) return cb(new Error('Type MIME non autorisé. JPEG, PNG ou WebP uniquement (SVG interdit).'));
+        const allowed = ['image/jpeg','image/png','image/webp', 'image/gif', 'image/jpg', 'image/pjpeg', 'image/x-png', 'application/octet-stream'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (!allowed.includes(file.mimetype) && !['.jpg', '.jpeg', '.png', '.webp', '.gif', '.jfif'].includes(ext)) {
+            return cb(new Error('Type MIME non autorisé. JPEG, PNG, WebP ou GIF uniquement (SVG interdit).'));
+        }
         cb(null, true);
     }
 });
@@ -335,19 +433,12 @@ const uploadXlsx = multer({
 });
 
 // ─── Helpers
-function sanitizeCSV(val, isText = false) {
+function escapeCSV(val) {
     if (val === null || val === undefined) return '""';
-    let str = String(val);
-    if (isText) { return '="' + str.replace(/"/g, '""') + '"'; }
-    if (/^[=+\-@\t\r]/.test(str)) str = "'" + str;
+    let str = String(val).replace(/\n|\r/g, ' ');
+    if (/^[\s\uFEFF]*[=+\-@\t\r]/.test(str)) str = "'" + str;
     return '"' + str.replace(/"/g, '""') + '"';
 }
-
-const escapeCSV = (val) => {
-    let str = String(val ?? '').replace(/\n|\r/g, ' ');
-    if (/^[\s\uFEFF]*[=+\-@]/.test(str)) str = "'" + str;
-    return '"' + str.replace(/"/g, '""') + '"';
-};
 
 function requireAdmin(req, res, next) {
     const session = getAdminSession(req);
@@ -406,20 +497,6 @@ const ORDER_STATUSES = [
     { value: 'ANNULE', label: 'Annulé' }
 ];
 const ORDER_STATUS_LABELS = Object.fromEntries(ORDER_STATUSES.map(status => [status.value, status.label]));
-const ORDER_STATUS_BY_LEGACY_STATUS = {
-    en_attente: 'EN_ATTENTE_PAIEMENT',
-    confirmee: 'PAYE',
-    livree: 'REMIS',
-    annulee: 'ANNULE'
-};
-const LEGACY_STATUS_BY_ORDER_STATUS = {
-    EN_ATTENTE_PAIEMENT: 'en_attente',
-    PAYE: 'confirmee',
-    EN_COMMANDE: 'confirmee',
-    PRET_AU_CLUB: 'confirmee',
-    REMIS: 'livree',
-    ANNULE: 'annulee'
-};
 
 function validateProductBody(body, isNew = false) {
     const errors = [];
@@ -501,70 +578,6 @@ function validateProductBody(body, isNew = false) {
 
 // ─── Routes Publiques
 
-app.post('/api/contact', contactLimiter, async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const body = req.body || {};
-    if (hasInvalidTextFields(body, { nom: 100, prenom: 100, email: 254, message: 5000 })) {
-        return res.status(400).json({ success: false, message: 'Les informations saisies sont invalides.' });
-    }
-
-    const nom = typeof body.nom === 'string' ? body.nom.trim().replace(/\s+/g, ' ') : '';
-    const prenom = typeof body.prenom === 'string' ? body.prenom.trim().replace(/\s+/g, ' ') : '';
-    const email = typeof body.email === 'string' ? normalizeEmail(body.email.trim()) : '';
-    const message = typeof body.message === 'string' ? body.message.trim() : '';
-
-    if (!nom || !prenom || !message || !isValidEmail(email)) {
-        return res.status(400).json({ success: false, message: 'Veuillez renseigner tous les champs avec une adresse e-mail valide.' });
-    }
-
-    const transporter = createMailTransporter();
-    if (!transporter) {
-        return res.status(503).json({ success: false, message: 'Le formulaire de contact est temporairement indisponible.' });
-    }
-
-    const escapeHtml = value => value.replace(/[&<>"']/g, char => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-    })[char]);
-    const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br>');
-
-    try {
-        await Promise.all([
-            transporter.sendMail({
-                from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
-                to: email,
-                subject: 'Confirmation de réception de votre message - AcelSpace',
-                html: `Votre message a bien été envoyé. Nous vous recontacterons sur cette adresse e-mail dans les plus brefs délais.<br><br>Rappel de votre message :<br><i>${safeMessage}</i>`
-            }),
-            transporter.sendMail({
-                from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
-                to: 'acelspacfx@gmail.com',
-                subject: `Nouveau message de contact : ${nom} ${prenom}`,
-                text: `Nom : ${nom}\nPrénom : ${prenom}\nEmail de contact : ${email}\n\nMessage :\n${message}`
-            })
-        ]);
-    } catch (error) {
-        console.error('Erreur envoi du formulaire de contact :', error);
-        return res.status(500).json({ success: false, message: 'Impossible d’envoyer votre message pour le moment. Veuillez réessayer plus tard.' });
-    }
-
-    fetch('https://ntfy.sh/acelspace-contact', {
-        method: 'POST',
-        body: message,
-        headers: {
-            'Title': `Nouveau mail de ${nom} ${prenom}`,
-            'Tags': 'email,envelope'
-        }
-    }).then(response => {
-        if (!response.ok) console.error(`Erreur d'envoi NTFY contact: HTTP ${response.status}`);
-    }).catch(error => console.error('Erreur d’envoi NTFY contact:', error));
-
-    return res.json({ success: true });
-});
-
 /** GET /api/products — produits actifs + prix dynamique si grille définie */
 app.get('/api/products', (req, res) => {
     try {
@@ -637,16 +650,16 @@ app.post('/api/precommandes/suivi/code', otpLimiter, async (req, res) => {
         if (trackingChallenges.size >= 10000 && !existingChallenge) {
             return res.json({ success: true, message: 'Si une commande correspond à cette adresse, un code vient d’être envoyé.' });
         }
-        const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-        const challenge = {
-            digest: crypto.createHash('sha256').update(code).digest(),
-            expiresAt: now + 10 * 60 * 1000,
-            resendAfter: now + 60 * 1000
-        };
-        trackingChallenges.set(email, challenge);
-
         const hasOrders = db.prepare('SELECT 1 FROM precommandes WHERE LOWER(email) = ? OR LOWER(contact) = ? LIMIT 1').get(email, email);
         if (hasOrders) {
+            const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+            const challenge = {
+                digest: crypto.createHash('sha256').update(code).digest(),
+                expiresAt: now + 10 * 60 * 1000,
+                resendAfter: now + 60 * 1000
+            };
+            trackingChallenges.set(email, challenge);
+
             try {
                 await transporter.sendMail({
                     from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
@@ -763,8 +776,15 @@ app.post('/api/precommandes/suivi', otpLimiter, (req, res) => {
 });
 
 /** POST /api/precommande — multi-lignes, transaction unique, prix dégressifs */
-app.post('/api/precommande', precommandeLimiter, (req, res) => {
+app.post('/api/precommande', precommandeLimiter, async (req, res) => {
     try {
+        // 0. Vérification anti-bot Cloudflare Turnstile (avant tout traitement)
+        const turnstileToken = req.body['cf-turnstile-response'];
+        const captchaOk = await verifyTurnstileToken(turnstileToken, req.ip);
+        if (!captchaOk) {
+            return res.status(400).json({ success: false, message: 'Vérification anti-bot échouée. Veuillez réessayer.' });
+        }
+
         if (hasInvalidTextFields(req.body, {
             nom: 100, email: 254, telephone: 30,
             parent_prenom: 50, parent_nom: 50, parent_email: 254, parent_telephone: 30,
@@ -989,18 +1009,8 @@ app.post('/api/precommande', precommandeLimiter, (req, res) => {
 
         // 6. Notifications non bloquantes
         const totalEstime = verifiedLines.reduce((acc, vl) => acc + vl.linePrice, 0);
-        fetch('https://ntfy.sh/acelspace-orders', {
-            method: 'POST',
-            body: `Montant : ${totalEstime} €\nParent : ${resolvedNom}\nEnfant : ${enfantPrenomClean} ${enfantNomClean}\nContact : ${normEmail}`,
-            headers: {
-                'Title': 'Nouvelle commande AcelSpace !',
-                'Tags': 'moneybag,shopping_cart,tada'
-            }
-        }).then(response => {
-            if (!response.ok) {
-                console.error(`Erreur d'envoi NTFY: HTTP ${response.status}`);
-            }
-        }).catch(err => console.error('Erreur d’envoi NTFY:', err));
+
+        void sendAnonymousPreorderNotification();
 
         sendConfirmationEmail({
             to: normEmail,
@@ -1038,7 +1048,7 @@ app.post('/api/admin/login', loginLimiter, (req, res) => {
         }
         const sessionToken = crypto.randomBytes(32).toString('hex');
         adminSessions.set(sessionToken, now + ADMIN_SESSION_DURATION_MS);
-        const isSecure = Boolean(process.env.PUBLIC_ORIGIN) || process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+        const isSecure = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
         res.cookie('admin_session', sessionToken, { httpOnly: true, signed: true, sameSite: 'strict', secure: isSecure, maxAge: ADMIN_SESSION_DURATION_MS });
         return res.json({ success: true, message: 'Connexion réussie.' });
     } catch(error) { console.error('Erreur login admin:', error); return res.status(500).json({ success: false, message: 'Erreur login.' }); }
@@ -1046,7 +1056,7 @@ app.post('/api/admin/login', loginLimiter, (req, res) => {
 
 app.post('/api/admin/logout', requireAdmin, (req, res) => {
     adminSessions.delete(req.signedCookies.admin_session);
-    const isSecure = Boolean(process.env.PUBLIC_ORIGIN) || process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const isSecure = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.clearCookie('admin_session', { httpOnly: true, signed: true, sameSite: 'strict', secure: isSecure });
     return res.json({ success: true, message: 'Déconnexion réussie.' });
 });
@@ -1220,7 +1230,7 @@ app.post('/api/admin/upload', requireAdmin, uploadLimiter, upload.single('image'
         }
         const ext = detectedMime === 'image/jpeg' ? 'jpg' : detectedMime === 'image/png' ? 'png' : 'webp';
         const filename = crypto.randomUUID() + '.' + ext;
-        fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+        saveUploadedFile(filename, req.file.buffer);
         return res.json({ success: true, url: '/uploads/' + filename });
     } catch (error) {
         console.error('Erreur upload image produit:', error);
@@ -1238,8 +1248,10 @@ app.post('/api/admin/products', requireAdmin, uploadLimiter, upload.single('imag
             if (!detectedMime) return res.status(400).json({ success: false, message: 'Fichier image invalide. JPEG, PNG ou WebP uniquement (SVG interdit).' });
             const ext = detectedMime === 'image/jpeg' ? 'jpg' : detectedMime === 'image/png' ? 'png' : 'webp';
             const filename = crypto.randomUUID() + '.' + ext;
-            fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+            saveUploadedFile(filename, req.file.buffer);
             imagePath = '/uploads/' + filename;
+        } else if (req.body.image && typeof req.body.image === 'string') {
+            imagePath = req.body.image.trim() || null;
         }
         const { name, price, description, featured } = req.body;
         const imageUrl2 = req.body.image_url_2?.trim() || null;
@@ -1295,10 +1307,11 @@ const updateProduct = (req, res) => {
             if (!detectedMime) return res.status(400).json({ success: false, message: 'Fichier image invalide. JPEG, PNG ou WebP uniquement (SVG interdit).' });
             const ext = detectedMime === 'image/jpeg' ? 'jpg' : detectedMime === 'image/png' ? 'png' : 'webp';
             const filename = crypto.randomUUID() + '.' + ext;
-            fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
-            const oldFile = getProductUploadPath(existing.image);
-            if (oldFile && fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+            saveUploadedFile(filename, req.file.buffer);
+            removeUploadedFile(existing.image);
             imagePath = '/uploads/' + filename;
+        } else if (req.body.image !== undefined && typeof req.body.image === 'string') {
+            imagePath = req.body.image.trim() || null;
         }
 
         let newActif = existing.actif;
@@ -1366,9 +1379,7 @@ app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
         if (!existing) return res.status(404).json({ success: false, message: 'Produit non trouvé.' });
         const linked = db.prepare('SELECT COUNT(*) as c FROM precommandes WHERE product_id = ?').get(id);
         if (linked && linked.c > 0) return res.status(409).json({ success: false, hasOrders: true, orderCount: linked.c, message: 'Ce produit a ' + linked.c + ' précommande(s). Suppression refusée. Vous pouvez l\'archiver (actif = 0).' });
-        const uploadedImages = [existing.image, existing.image_url_2, existing.detail_table_image]
-            .map(getProductUploadPath)
-            .filter(Boolean);
+        const rawImages = [existing.image, existing.image_url_2, existing.detail_table_image].filter(Boolean);
 
         db.transaction(() => {
             db.prepare('DELETE FROM price_tiers WHERE product_id = ?').run(id);
@@ -1377,13 +1388,8 @@ app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
             db.prepare('DELETE FROM products WHERE id = ?').run(id);
         })();
 
-        for (const imagePath of uploadedImages) {
-            if (!fs.existsSync(imagePath)) continue;
-            try {
-                fs.unlinkSync(imagePath);
-            } catch (error) {
-                console.error(`Impossible de supprimer le fichier image ${path.basename(imagePath)} :`, error);
-            }
+        for (const img of rawImages) {
+            removeUploadedFile(img);
         }
         return res.json({ success: true, message: 'Produit supprimé avec succès.' });
     } catch(error) { console.error('Erreur DELETE produit:', error); return res.status(500).json({ success: false, message: 'Erreur suppression produit.' }); }
@@ -1451,13 +1457,10 @@ app.get('/api/admin/precommandes', requireAdmin, (req, res) => {
             totalUniqueClients: totalUQ ? totalUQ.count : 0,
             totalRevenue: activeRecords.reduce((acc, c) => acc + (Number(c.prix_estime) || 0), 0),
             byStatus: {
-                en_attente: activeRecords.filter(r => r.status === 'EN_ATTENTE_PAIEMENT' || r.status === 'EN_COMMANDE').length,
-                confirmee: activeRecords.filter(r => r.status === 'PAYE' || r.status === 'PRET_AU_CLUB').length,
-                livree: activeRecords.filter(r => r.status === 'REMIS').length,
-                annulee: allRecords.filter(r =>
-                    ['ANNULE', 'ANNULÉ'].includes(String(r.status || '').trim().toUpperCase())
-                    || String(r.statut || '').trim().toLowerCase() === 'annulee'
-                ).length
+                en_attente: allRecords.filter(r => r.status === 'EN_ATTENTE_PAIEMENT' || r.status === 'EN_COMMANDE').length,
+                confirmee: allRecords.filter(r => r.status === 'PAYE' || r.status === 'PRET_AU_LOCAL').length,
+                livree: allRecords.filter(r => r.status === 'REMIS').length,
+                annulee: allRecords.filter(r => r.status === 'ANNULE' || r.statut === 'annulee').length
             },
             recapByProductSize: db.prepare("SELECT produit, taille, SUM(quantite) as quantite, COUNT(*) as count, SUM(prix_estime) as total_prix FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ') AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee' GROUP BY produit COLLATE BINARY, taille COLLATE BINARY ORDER BY produit COLLATE BINARY ASC, taille COLLATE BINARY ASC").all()
         };
@@ -1542,16 +1545,9 @@ app.patch('/api/admin/precommandes/:id/status-all', requireAdmin, (req, res) => 
 
 const updatePrecommandeByReference = (req, res) => {
     try {
-        const { commande_ref } = req.params;
-        const { status, statut } = req.body;
-        const nextStatus = status || ORDER_STATUS_BY_LEGACY_STATUS[statut];
-        if (!/^CMD-[A-Z0-9-]{1,40}$/i.test(commande_ref) || !Object.hasOwn(ORDER_STATUS_LABELS, nextStatus)) {
-            return res.status(400).json({ success: false, message: 'Référence ou statut invalide.' });
-        }
-        const order = db.prepare('SELECT student_first_name, nom FROM precommandes WHERE commande_ref = ? ORDER BY id ASC LIMIT 1').get(commande_ref);
-        if (!order) return res.status(404).json({ success: false, message: 'Aucune commande trouvée pour cette référence.' });
-        const info = db.prepare('UPDATE precommandes SET statut = ?, status = ? WHERE commande_ref = ?')
-            .run(LEGACY_STATUS_BY_ORDER_STATUS[nextStatus], nextStatus, commande_ref);
+        const { commande_ref } = req.params; const { statut } = req.body;
+        if (!/^CMD-[A-Z0-9-]{1,40}$/i.test(commande_ref) || !['en_attente', 'confirmee', 'livree', 'annulee'].includes(statut)) return res.status(400).json({ success: false, message: 'Référence ou statut invalide.' });
+        const info = db.prepare('UPDATE precommandes SET statut = ? WHERE commande_ref = ?').run(statut, commande_ref);
         if (info.changes === 0) return res.status(404).json({ success: false, message: 'Aucune commande trouvée pour cette référence.' });
         recalculateAllTierPrices();
         const firstName = order.student_first_name?.trim() || order.nom?.trim().split(/\s+/)[0] || 'Client';
@@ -1622,16 +1618,12 @@ app.delete('/api/admin/clients/:id', requireAdmin, (req, res) => {
 
 app.get('/api/admin/export', requireAdmin, (req, res) => {
     try {
-        recalculateAllTierPrices();
-        const rows = db.prepare('SELECT p.*, c.nom as client_nom, c.email as client_email, c.telephone as client_telephone, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN products pr ON pr.id = p.product_id ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC').all();
-        const headers = ['Réf. Commande', 'Date', 'Nom Parent', 'Prénom Parent', 'Email Parent', 'Téléphone Parent', 'Nom Enfant', 'Prénom Enfant', 'Produit', 'Taille', 'Quantité', 'Prix Total', 'Statut', 'Personnalisation', "Remarques (avec adresse mail et téléphone de l'enfant si renseigné)"];
-        const csvLines = [headers.join(';')];
+        const rows = db.prepare("SELECT p.*, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN products pr ON pr.id = p.product_id WHERE COALESCE(UPPER(TRIM(p.status)), '') NOT IN ('ANNULE', 'ANNULÉ') ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC").all();
+        const headers = ['ID Ligne', 'Réf. Commande', 'Client ID', 'Date', 'Nom', 'Prénom enfant', 'Nom enfant', 'Email', 'Téléphone', 'Produit', 'Taille', 'Quantite', 'Prix Estime', 'Statut', 'Consentement RGPD', 'Date Consentement', 'Remarques', 'Personnalisation'];
+        const csvLines = [headers.map(escapeCSV).join(';')];
         rows.forEach(r => {
             const date = r.date_creation ? new Date(r.date_creation).toLocaleString('fr-FR') : '';
             const parentFullName = String(r.nom || r.client_nom || '').trim();
-            const parentNameParts = parentFullName.split(/\s+/).filter(Boolean);
-            const parentPrenom = parentNameParts.length > 1 ? parentNameParts.shift() : '';
-            const parentNom = parentNameParts.length > 0 ? parentNameParts.join(' ') : parentFullName;
             const email = r.email || r.client_email || r.contact || '';
             const telephone = r.telephone || r.client_telephone || '';
             const refVal = r.commande_ref || ('CMD-' + r.id);
@@ -1651,21 +1643,24 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
                 ? Number(r.prix_estime).toFixed(2).replace('.', ',')
                 : '';
             csvLines.push([
+                r.id,
                 refVal,
+                r.client_id ? formatClientId(r.client_id) : '',
                 date,
-                parentNom,
-                parentPrenom,
+                parentFullName,
+                r.student_first_name || '',
+                r.student_last_name || '',
                 email,
                 telephone,
-                r.student_last_name || '',
-                r.student_first_name || '',
                 r.produit,
                 r.taille,
                 r.quantite,
                 prixTotal,
                 ORDER_STATUS_LABELS[status] || status,
+                Number(r.consentement) === 1 ? 'Oui' : 'Non',
+                r.date_consentement || '',
+                remarques,
                 personnalisation,
-                remarques
             ].map(escapeCSV).join(';'));
         });
         const filename = 'precommandes-acelspace-' + new Date().toISOString().slice(0, 10) + '.csv';
@@ -1677,15 +1672,14 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
 
 app.get('/api/admin/export-recap', requireAdmin, (req, res) => {
     try {
-        recalculateAllTierPrices();
-        let query = "SELECT produit, taille, SUM(quantite) as quantite_totale, COUNT(*) as nombre_commandes, SUM(prix_estime) as total_estime FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ') AND COALESCE(LOWER(TRIM(statut)), '') != 'annulee'";
-        query += ' GROUP BY produit COLLATE BINARY, taille COLLATE BINARY ORDER BY produit COLLATE BINARY ASC, taille COLLATE BINARY ASC';
+        let query = "SELECT produit, taille, SUM(quantite) as quantite_totale, COUNT(*) as nombre_commandes, SUM(prix_estime) as total_estime FROM precommandes WHERE COALESCE(UPPER(TRIM(status)), '') NOT IN ('ANNULE', 'ANNULÉ')";
+        query += ' GROUP BY produit, taille ORDER BY produit ASC, taille ASC';
         const rows = db.prepare(query).all();
         const headers = ['Produit', 'Taille', 'Quantite Totale', 'Nombre Commandes', 'Total Estime'];
-        const csvLines = [headers.map(h => sanitizeCSV(h)).join(';')];
+        const csvLines = [headers.map(h => escapeCSV(h)).join(';')];
         let gQty = 0, gOrd = 0, gEst = 0;
-        rows.forEach(r => { gQty += r.quantite_totale || 0; gOrd += r.nombre_commandes || 0; gEst += r.total_estime || 0; csvLines.push([r.produit, r.taille, r.quantite_totale, r.nombre_commandes, r.total_estime].map(v => sanitizeCSV(v)).join(';')); });
-        csvLines.push(['TOTAL GENERAL', 'Toutes tailles', gQty, gOrd, Math.round(gEst * 100) / 100].map(v => sanitizeCSV(v)).join(';'));
+        rows.forEach(r => { gQty += r.quantite_totale || 0; gOrd += r.nombre_commandes || 0; gEst += r.total_estime || 0; csvLines.push([r.produit, r.taille, r.quantite_totale, r.nombre_commandes, r.total_estime].map(v => escapeCSV(v)).join(';')); });
+        csvLines.push(['TOTAL GENERAL', 'Toutes tailles', gQty, gOrd, Math.round(gEst * 100) / 100].map(v => escapeCSV(v)).join(';'));
         const filename = 'recap-precommandes-acelspace-' + new Date().toISOString().slice(0, 10) + '.csv';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
@@ -1893,8 +1887,9 @@ app.post('/api/admin/price-tiers/:product_id', requireAdmin, uploadLimiter, uplo
         for (let i = 1; i < newTiers.length; i++) {
             const prev = newTiers[i - 1];
             const curr = newTiers[i];
-            if (prev.qty_max !== curr.qty_min) {
-                return res.status(400).json({ success: false, message: `Paliers non continus entre ligne ${i+1} et ${i+2} : quantite_max de la ligne ${i+1} (${prev.qty_max}) doit être égale à quantite_min de la ligne ${i+2} (${curr.qty_min}).` });
+            const isContinuous = prev.qty_max === curr.qty_min || (prev.qty_max + 1) === curr.qty_min;
+            if (!isContinuous) {
+                return res.status(400).json({ success: false, message: `Paliers non continus entre ligne ${i+1} et ${i+2} : quantite_max de la ligne ${i+1} (${prev.qty_max}) doit être suivie de quantite_min de la ligne ${i+2} (${curr.qty_min}).` });
             }
         }
 
@@ -1985,12 +1980,9 @@ app.post('/api/admin/logo', requireAdmin, uploadLimiter, upload.single('logo'), 
         const detectedMime = checkMagicBytes(req.file.buffer);
         if (!detectedMime) return res.status(400).json({ success: false, message: 'Fichier invalide. JPEG, PNG ou WebP uniquement.' });
         const ext = detectedMime === 'image/jpeg' ? 'jpg' : detectedMime === 'image/png' ? 'png' : 'webp';
-        const oldRow = db.prepare("SELECT valeur FROM settings WHERE cle = 'logo_url'").get();
-        const oldFile = getLogoUploadPath(oldRow?.valeur);
-        if (oldFile && fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
         const filename = `logo-custom.${ext}`;
-        const destPath = path.join(uploadsDir, filename);
-        fs.writeFileSync(destPath, req.file.buffer);
+        removeUploadedFile(oldRow?.valeur);
+        saveUploadedFile(filename, req.file.buffer);
         const logoUrl = `/uploads/${filename}`;
         db.prepare("INSERT INTO settings (cle, valeur) VALUES ('logo_url', ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur").run(logoUrl);
         return res.json({ success: true, url: logoUrl });
@@ -2000,7 +1992,12 @@ app.post('/api/admin/logo', requireAdmin, uploadLimiter, upload.single('logo'), 
     }
 });
 
-// ─── Production Static Serving
+// ─── Static Serving
+const publicPath = path.resolve(__dirname, '../public');
+if (fs.existsSync(publicPath)) {
+    app.use(express.static(publicPath));
+}
+
 const distPath = path.resolve(__dirname, '../dist');
 if (fs.existsSync(distPath)) {
     app.get(['/admin-print', '/admin-print.html'], requireAdmin, (req, res) => {
