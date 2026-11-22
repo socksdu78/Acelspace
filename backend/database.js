@@ -322,18 +322,21 @@ if (productCount.c === 0) {
         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
     `);
     db.transaction(() => {
-        insertProduct.run('T-shirt', 30, 'T-shirt aux couleurs du club, avec votre nom et prenom.',
-            JSON.stringify(['M', 'L', 'XL', 'XXL']),
-            '/images/products/acelspace-shirt.jpg', 1, 1, now, 1, 'NOM, Prénom', 1);
+        insertProduct.run('T-shirt unisexe', 30, 'T-shirt aux couleurs du club, avec votre nom et prenom.',
+            JSON.stringify(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']),
+            '/images/products/acelspace-shirt.jpg', 1, 1, now, 1, 'Prénom, Nom', 1);
+        insertProduct.run('Sweat à capuche unisexe', 45, 'Sweat à capuche aux couleurs du club, avec votre nom et prenom.',
+            JSON.stringify(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']),
+            '/images/products/acelspace-hoodie.jpg', 0, 2, now, 1, 'Prénom, Nom', 1);
         insertProduct.run('Stylo', 10, 'Stylo officiel aux couleurs du club AcelSpace.',
             JSON.stringify(['S', 'M', 'L', 'XL']),
-            '/images/products/acelspace-pen.jpg', 0, 2, now, 0, '', 1);
+            '/images/products/acelspace-pen.jpg', 0, 3, now, 0, '', 1);
         insertProduct.run('Tapis de souris', 18, 'Tapis de souris avec le logo officiel du club AcelSpace.',
             JSON.stringify(['Taille unique']),
-            '/images/products/acelspace-mousepad.jpg', 0, 3, now, 0, '', 1);
+            '/images/products/acelspace-mousepad.jpg', 0, 4, now, 0, '', 1);
         insertProduct.run('Cle usb', 15, 'Cle USB 32 Go aux couleurs officielles du club AcelSpace.',
-            JSON.stringify(['32 GO']),
-            '/images/products/acelspace-usb.jpg', 0, 4, now, 1, 'NOM, Prénom', 0);
+            JSON.stringify(['32 Go']),
+            '/images/products/acelspace-usb.jpg', 0, 5, now, 1, 'NOM, Prénom', 0);
     })();
 }
 

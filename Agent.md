@@ -90,7 +90,7 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
 - Les accessoires sans taille vestimentaire utilisent toujours `sizes: ['Taille unique']`.
 - La fiche produit permet de consulter le visuel, basculer vers la seconde vue, ouvrir le guide des tailles en lightbox, sélectionner une taille, et cliquer sur **AJOUTER AU PANIER**.
 - Toute personnalisation produit est saisie sur la fiche produit et stockée sur la ligne correspondante du panier.
-- Les clés USB demandent un prénom et un nom de gravure. Les T-shirts demandent le prénom, le nom et la taille de marquage.
+- Les clés USB demandent un prénom et un nom de gravure. Les vêtements personnalisables demandent le prénom et le nom à marquer ; la taille choisie est celle du vêtement.
 
 ---
 

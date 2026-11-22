@@ -75,7 +75,8 @@ function getUsbPersonalization(order) {
 function getProductPersonalizationType(productName) {
     const name = String(productName || '').toLowerCase();
     if (name.includes('usb')) return 'usb';
-    if (name.includes('t-shirt') || name.includes('tshirt') || name.includes('tee')) return 'tshirt';
+    if (name.includes('t-shirt') || name.includes('tshirt') || name.includes('tee')
+        || name.includes('sweat') || name.includes('hoodie') || name.includes('pull')) return 'tshirt';
     return '';
 }
 
@@ -87,13 +88,13 @@ function getOrderPersonalization(order) {
     if (productType === 'tshirt') {
         const prenom = cleanPersonalization(order.tshirt_prenom);
         const nom = cleanPersonalization(order.tshirt_nom);
-        const taille = cleanPersonalization(order.tshirt_taille);
-        if (prenom && nom) return `${prenom} ${nom}${taille ? ` / taille ${taille}` : ''}`;
+        if (prenom && nom) return `${prenom} ${nom}`;
 
         const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[MARQUAGE TSHIRT\]\s*([^\r\n]+)/i);
-        if (legacyMatch?.[1]) {
-            return cleanPersonalization(legacyMatch[1].replace(/\s*\/\s*Taille:\s*/i, ' / taille '));
-        }
+        if (legacyMatch?.[1]) return cleanPersonalization(legacyMatch[1].replace(/\s*\/\s*.*$/, ''));
+        const legacyPersonalization = cleanPersonalization(order.personnalisation);
+        if (legacyPersonalization) return legacyPersonalization.replace(/\s*\/\s*.*$/, '').trim();
+        return '';
     }
 
     return cleanPersonalization(order.personnalisation);
@@ -106,7 +107,7 @@ function getPersonalizationLabel(productName) {
 
 function getOptionalPersonalizationColumnSelection(alias = 'p') {
     const columns = new Set(db.pragma('table_info(precommandes)').map(column => column.name));
-    return ['usb_prenom', 'usb_nom', 'tshirt_prenom', 'tshirt_nom', 'tshirt_taille'].map(column =>
+    return ['usb_prenom', 'usb_nom', 'tshirt_prenom', 'tshirt_nom'].map(column =>
         columns.has(column) ? `${alias}.${column}` : `'' AS ${column}`
     ).join(', ');
 }
@@ -913,7 +914,7 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
             parent_prenom: 50, parent_nom: 50, parent_email: 254, parent_telephone: 30,
             enfant_prenom: 50, enfant_nom: 50, enfant_email: 254, enfant_telephone: 30,
             personnalisation: 100, remarques: 1000, usb_prenom: 50, usb_nom: 50,
-            tshirt_prenom: 50, tshirt_nom: 50, tshirt_taille: 30,
+            tshirt_prenom: 50, tshirt_nom: 50,
             produit: 60, taille: 30
         })) {
             return res.status(400).json({ success: false, message: 'Un ou plusieurs champs texte sont invalides ou trop longs.' });
@@ -935,7 +936,7 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
             personnalisation,
             remarques,
             usb_prenom, usb_nom,
-            tshirt_prenom, tshirt_nom, tshirt_taille,
+            tshirt_prenom, tshirt_nom,
             notify_price_drops,
         } = req.body;
         const notifyPriceDrops = notify_price_drops === true ? 1 : 0;
@@ -1011,8 +1012,6 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
                     && (typeof item.tshirt_prenom !== 'string' || item.tshirt_prenom.length > 50))
                 || (item.tshirt_nom !== undefined
                     && (typeof item.tshirt_nom !== 'string' || item.tshirt_nom.length > 50))
-                || (item.tshirt_taille !== undefined
-                    && (typeof item.tshirt_taille !== 'string' || item.tshirt_taille.length > 30))
                 || (item.noCustomization !== undefined && typeof item.noCustomization !== 'boolean')) {
                 return res.status(400).json({ success: false, message: 'Une ligne de précommande est invalide.' });
             }
@@ -1041,9 +1040,6 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
             if (isUsb && noCustomization) {
                 return res.status(400).json({ success: false, message: 'La gravure est obligatoire pour une clé USB.' });
             }
-            if (isTshirt && noCustomization) {
-                return res.status(400).json({ success: false, message: 'Le marquage est obligatoire pour un T-shirt.' });
-            }
             if (isUsb && typeof item.personalization === 'string' && item.personalization.length > 101) {
                 return res.status(400).json({ success: false, message: 'La gravure USB ne peut pas dépasser 50 caractères par champ.' });
             }
@@ -1064,20 +1060,17 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
                 ? `${lineUsbPrenom.trim()} ${lineUsbNom.trim()}`
                 : '';
             const hasLineTshirtFields = item.tshirt_prenom !== undefined
-                || item.tshirt_nom !== undefined || item.tshirt_taille !== undefined;
+                || item.tshirt_nom !== undefined;
             const lineTshirtPrenom = hasLineTshirtFields ? item.tshirt_prenom : tshirt_prenom;
             const lineTshirtNom = hasLineTshirtFields ? item.tshirt_nom : tshirt_nom;
-            const lineTshirtTaille = hasLineTshirtFields ? item.tshirt_taille : tshirt_taille;
-            const allowedMarkingSizes = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
-            if (isTshirt && !noCustomization && (
+            if (isTshirt && isCustomizable && !noCustomization && (
                 typeof lineTshirtPrenom !== 'string' || !lineTshirtPrenom.trim()
                 || typeof lineTshirtNom !== 'string' || !lineTshirtNom.trim()
-                || !allowedMarkingSizes.includes(lineTshirtTaille)
             )) {
-                return res.status(400).json({ success: false, message: 'Chaque T-shirt doit avoir un prénom, un nom et une taille de marquage valides.' });
+                return res.status(400).json({ success: false, message: 'Chaque article textile à personnaliser doit avoir un prénom et un nom (50 caractères maximum chacun).' });
             }
-            const tshirtPersonalization = isTshirt && !noCustomization
-                ? `${lineTshirtPrenom.trim()} ${lineTshirtNom.trim()} / taille ${lineTshirtTaille}`
+            const tshirtPersonalization = isTshirt && isCustomizable && !noCustomization
+                ? `${lineTshirtPrenom.trim()} ${lineTshirtNom.trim()}`
                 : '';
             const itemPersonalization = item.personalization === undefined
                 ? cleanPersonalization(personnalisationClean)
@@ -1133,10 +1126,6 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
         if (enfant_email && enfant_email.trim()) remarquesParts.push(`Email enfant: ${enfant_email.trim()}`);
         if (enfant_telephone && enfant_telephone.trim()) remarquesParts.push(`Tél enfant: ${enfant_telephone.trim()}`);
         if (usb_prenom && usb_nom) remarquesParts.push(`[GRAVURE USB] ${usb_prenom.trim()} ${usb_nom.trim()}`);
-        if (tshirt_prenom && tshirt_nom) {
-            const tshirtLine = `[MARQUAGE TSHIRT] ${tshirt_prenom.trim()} ${tshirt_nom.trim()}${tshirt_taille ? ' / Taille: ' + tshirt_taille.trim() : ''}`;
-            remarquesParts.push(tshirtLine);
-        }
         if (remarques && remarques.trim()) remarquesParts.push(`[REMARQUES] ${remarques.trim()}`);
         const remarquesConsolidees = remarquesParts.join('\n');
 

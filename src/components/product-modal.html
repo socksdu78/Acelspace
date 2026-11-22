@@ -89,28 +89,27 @@
                                 </label>
                             </div>
 
-                            <div x-show="getProductType(activeProduct) === 'tshirt' && !noCustomization"
+                            <div x-show="getProductType(activeProduct) === 'tshirt'
+                                    && Number(activeProduct.requires_customization) === 1
+                                    && !noCustomization"
                                 class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <label class="space-y-1">
-                                    <span class="block text-[11px] font-black uppercase text-slate-700">Prénom à marquer *</span>
-                                    <input type="text" x-model="productTshirtPrenom" maxlength="50" required
+                                    <span class="block text-[11px] font-black uppercase text-slate-700"
+                                        x-text="getTextileCustomizationLabel(activeProduct, 'prenom')"></span>
+                                    <input type="text" x-model="productTshirtPrenom" maxlength="50"
+                                        :required="Number(activeProduct.requires_customization) === 1 && !noCustomization"
+                                        :disabled="noCustomization"
                                         autocomplete="off" @input="productPersonalisationError = ''"
                                         class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
                                 </label>
                                 <label class="space-y-1">
-                                    <span class="block text-[11px] font-black uppercase text-slate-700">Nom à marquer *</span>
-                                    <input type="text" x-model="productTshirtNom" maxlength="50" required
+                                    <span class="block text-[11px] font-black uppercase text-slate-700"
+                                        x-text="getTextileCustomizationLabel(activeProduct, 'nom')"></span>
+                                    <input type="text" x-model="productTshirtNom" maxlength="50"
+                                        :required="Number(activeProduct.requires_customization) === 1 && !noCustomization"
+                                        :disabled="noCustomization"
                                         autocomplete="off" @input="productPersonalisationError = ''"
                                         class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
-                                </label>
-                                <label class="space-y-1 sm:col-span-2">
-                                    <span class="block text-[11px] font-black uppercase text-slate-700">Taille de marquage *</span>
-                                    <select x-model="productTshirtTaille" required
-                                        class="w-full px-3 py-2 text-xs font-black bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer">
-                                        <option value="">Sélectionnez une taille</option>
-                                        <option>S</option><option>M</option><option>L</option>
-                                        <option>XL</option><option>2XL</option><option>3XL</option>
-                                    </select>
                                 </label>
                             </div>
 
@@ -123,17 +122,19 @@
                                     x-text="activeProduct.customization_fields || 'Personnalisation *'"></span>
                                 <input type="text" x-model="productPersonalisation" maxlength="100"
                                     :required="Number(activeProduct.requires_customization) === 1 && !noCustomization"
+                                    :disabled="noCustomization"
                                     @input="handleProductPersonalisationInput($event.target.value)"
                                     class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
                             </label>
 
                             <template x-if="Number(activeProduct.requires_customization) === 1
                                 && Number(activeProduct.allow_no_customization) === 1
-                                && !['usb', 'tshirt'].includes(getProductType(activeProduct))">
+                                && getProductType(activeProduct) !== 'usb'">
                                 <label class="sm:col-span-2 flex items-start gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
                                     <input type="checkbox" x-model="noCustomization"
+                                        @change="productPersonalisationError = ''"
                                         class="mt-0.5 w-4 h-4 rounded border-2 border-slate-900 text-slate-900 focus:ring-0 cursor-pointer">
-                                    <span>Ne pas personnaliser cet article (prénom/nom)</span>
+                                    <span>Ne pas personnaliser cet article</span>
                                 </label>
                             </template>
 

@@ -133,14 +133,17 @@ Alpine.data('adminApp', () => ({
             const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[GRAVURE USB\]\s*([^\r\n]+)/i);
             return legacyMatch?.[1]?.trim() || '';
         }
-        if (productName.includes('t-shirt') || productName.includes('tshirt') || productName.includes('tee')) {
+        if (productName.includes('t-shirt') || productName.includes('tshirt') || productName.includes('tee')
+            || productName.includes('sweat') || productName.includes('hoodie') || productName.includes('pull')) {
             if (Number(order.no_customization) === 1) return '';
             const prenom = typeof order.tshirt_prenom === 'string' ? order.tshirt_prenom.trim() : '';
             const nom = typeof order.tshirt_nom === 'string' ? order.tshirt_nom.trim() : '';
-            const taille = typeof order.tshirt_taille === 'string' ? order.tshirt_taille.trim() : '';
-            if (prenom && nom) return `${prenom} ${nom}${taille ? ` / taille ${taille}` : ''}`;
+            if (prenom && nom) return `${prenom} ${nom}`;
             const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[MARQUAGE TSHIRT\]\s*([^\r\n]+)/i);
-            if (legacyMatch?.[1]) return legacyMatch[1].replace(/\s*\/\s*Taille:\s*/i, ' / taille ').trim();
+            if (legacyMatch?.[1]) return legacyMatch[1].replace(/\s*\/\s*.*$/, '').trim();
+            if (this.hasPersonalization(order.personnalisation)) {
+                return order.personnalisation.trim().replace(/\s*\/\s*.*$/, '').trim();
+            }
         }
         return this.hasPersonalization(order?.personnalisation) ? order.personnalisation.trim() : '';
     },

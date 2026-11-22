@@ -64,7 +64,6 @@ Alpine.data('merchApp', () => ({
     productUsbNom: '',
     productTshirtPrenom: '',
     productTshirtNom: '',
-    productTshirtTaille: '',
     justAddedFeedback: false,
     justAddedTimer: null,
 
@@ -469,7 +468,6 @@ Alpine.data('merchApp', () => ({
         this.productUsbNom = '';
         this.productTshirtPrenom = '';
         this.productTshirtNom = '';
-        this.productTshirtTaille = '';
         this.justAddedFeedback = false;
         this.isProductModalOpen = true;
     },
@@ -573,7 +571,6 @@ Alpine.data('merchApp', () => ({
             const noCustomization = Boolean(
                 (item.noCustomization || legacyNoCustomization)
                 && !isUsb
-                && !isTshirt
                 && Number(prod.requires_customization) === 1
                 && Number(prod.allow_no_customization) === 1
             );
@@ -583,15 +580,15 @@ Alpine.data('merchApp', () => ({
                 taille: taille,
                 quantite: Math.max(1, Math.min(10, parseInt(item.quantite, 10) || 1)),
                 noCustomization,
-                personalization: ((isCustomizable && !noCustomization) || isUsb || (isTshirt && !noCustomization))
+                personalization: !isTshirt
+                    && ((isCustomizable && !noCustomization) || isUsb)
                     && typeof item.personalization === 'string'
                     ? item.personalization
                     : '',
                 usb_prenom: isUsb && typeof item.usb_prenom === 'string' ? item.usb_prenom.slice(0, 50) : '',
                 usb_nom: isUsb && typeof item.usb_nom === 'string' ? item.usb_nom.slice(0, 50) : '',
-                tshirt_prenom: isTshirt && typeof item.tshirt_prenom === 'string' ? item.tshirt_prenom.slice(0, 50) : '',
-                tshirt_nom: isTshirt && typeof item.tshirt_nom === 'string' ? item.tshirt_nom.slice(0, 50) : '',
-                tshirt_taille: isTshirt && typeof item.tshirt_taille === 'string' ? item.tshirt_taille.slice(0, 30) : ''
+                tshirt_prenom: isTshirt && !noCustomization && typeof item.tshirt_prenom === 'string' ? item.tshirt_prenom.slice(0, 50) : '',
+                tshirt_nom: isTshirt && !noCustomization && typeof item.tshirt_nom === 'string' ? item.tshirt_nom.slice(0, 50) : ''
             });
         }
 
@@ -610,31 +607,29 @@ Alpine.data('merchApp', () => ({
         const taille = this.selectedTaille || 'Taille unique';
         const isUsb = this.getProductType(product) === 'usb';
         const isTshirt = this.getProductType(product) === 'tshirt';
+        const isCustomizable = Number(product.requires_customization) === 1;
         const noCustomization = Boolean(
             !isUsb
-            && !isTshirt
             && this.noCustomization
-            && Number(product.requires_customization) === 1
+            && isCustomizable
             && Number(product.allow_no_customization) === 1
         );
-        const isCustomizable = Number(product.requires_customization) === 1;
         const usbPrenom = isUsb ? this.productUsbPrenom.trim() : '';
         const usbNom = isUsb ? this.productUsbNom.trim() : '';
-        const tshirtPrenom = isTshirt ? this.productTshirtPrenom.trim() : '';
-        const tshirtNom = isTshirt ? this.productTshirtNom.trim() : '';
-        const tshirtTaille = isTshirt ? this.productTshirtTaille : '';
+        const tshirtPrenom = isTshirt && !noCustomization ? this.productTshirtPrenom.trim() : '';
+        const tshirtNom = isTshirt && !noCustomization ? this.productTshirtNom.trim() : '';
         if (isUsb && (!usbPrenom || !usbNom)) {
             this.productPersonalisationError = 'Veuillez saisir le prénom et le nom à graver sur la clé USB.';
             return;
         }
-        if (isTshirt && !noCustomization && (!tshirtPrenom || !tshirtNom || !tshirtTaille)) {
-            this.productPersonalisationError = 'Veuillez saisir le prénom, le nom et la taille de marquage du T-shirt.';
+        if (isTshirt && isCustomizable && !noCustomization && (!tshirtPrenom || !tshirtNom)) {
+            this.productPersonalisationError = 'Veuillez saisir le prénom et le nom à marquer (50 caractères maximum chacun).';
             return;
         }
         const personalization = isUsb
             ? `${usbPrenom} ${usbNom}`
             : (isTshirt
-                ? (!noCustomization ? `${tshirtPrenom} ${tshirtNom} / taille ${tshirtTaille}` : '')
+                ? (isCustomizable && !noCustomization ? `${tshirtPrenom} ${tshirtNom}` : '')
                 : (isCustomizable && !noCustomization ? (this.productPersonalisation || '').trim() : ''));
 
         if (isCustomizable && !noCustomization && !isUsb && !isTshirt && !personalization) {
@@ -665,7 +660,6 @@ Alpine.data('merchApp', () => ({
             if (isTshirt) {
                 this.cart[existingIndex].tshirt_prenom = tshirtPrenom;
                 this.cart[existingIndex].tshirt_nom = tshirtNom;
-                this.cart[existingIndex].tshirt_taille = tshirtTaille;
             }
         } else {
             if (this.cart.length >= 20) {
@@ -679,11 +673,7 @@ Alpine.data('merchApp', () => ({
                 noCustomization,
                 personalization,
                 ...(isUsb ? { usb_prenom: usbPrenom, usb_nom: usbNom } : {}),
-                ...(isTshirt ? {
-                    tshirt_prenom: tshirtPrenom,
-                    tshirt_nom: tshirtNom,
-                    tshirt_taille: tshirtTaille
-                } : {})
+                ...(isTshirt ? { tshirt_prenom: tshirtPrenom, tshirt_nom: tshirtNom } : {})
             });
         }
 
@@ -750,8 +740,8 @@ Alpine.data('merchApp', () => ({
             const isTshirt = this.getProductType(product) === 'tshirt';
             const personalizationText = isUsb && item.usb_prenom && item.usb_nom
                 ? `${item.usb_prenom} ${item.usb_nom}`
-                : (isTshirt && item.tshirt_prenom && item.tshirt_nom
-                    ? `${item.tshirt_prenom} ${item.tshirt_nom} / taille ${item.tshirt_taille}`
+                : (isTshirt && !item.noCustomization && item.tshirt_prenom && item.tshirt_nom
+                    ? `${item.tshirt_prenom} ${item.tshirt_nom}`
                     : (item.personalization || ''));
             return {
                 index,
@@ -825,12 +815,13 @@ Alpine.data('merchApp', () => ({
         const hasMissingTshirtMarking = this.cart.some(item => {
             const product = this.getProductDetails(item.product_id);
             return this.getProductType(product) === 'tshirt'
+                && Number(product?.requires_customization) === 1
+                && item.noCustomization !== true
                 && (!(item.tshirt_prenom || '').trim()
-                    || !(item.tshirt_nom || '').trim()
-                    || !['S', 'M', 'L', 'XL', '2XL', '3XL'].includes(item.tshirt_taille));
+                    || !(item.tshirt_nom || '').trim());
         });
         if (hasMissingTshirtMarking) {
-            this.cartError = 'Chaque T-shirt doit avoir un prénom, un nom et une taille de marquage. Retournez à sa fiche produit pour compléter le marquage.';
+            this.cartError = 'Chaque article textile à personnaliser doit avoir un prénom et un nom. Retournez à sa fiche produit pour compléter le marquage.';
             return;
         }
 
@@ -921,15 +912,14 @@ Alpine.data('merchApp', () => ({
                         personalization: isUsb
                             ? `${item.usb_prenom} ${item.usb_nom}`
                             : (isTshirt
-                                ? (item.noCustomization === true
-                                    ? null
-                                    : `${item.tshirt_prenom} ${item.tshirt_nom} / taille ${item.tshirt_taille}`)
+                                ? (isCustomizable && item.noCustomization !== true
+                                    ? `${item.tshirt_prenom} ${item.tshirt_nom}`
+                                    : null)
                                 : (isCustomizable ? item.personalization : null)),
                         ...(isUsb ? { usb_prenom: item.usb_prenom, usb_nom: item.usb_nom } : {}),
-                        ...(isTshirt ? {
+                        ...(isTshirt && isCustomizable ? {
                             tshirt_prenom: item.tshirt_prenom,
-                            tshirt_nom: item.tshirt_nom,
-                            tshirt_taille: item.tshirt_taille
+                            tshirt_nom: item.tshirt_nom
                         } : {})
                     };
                 })
@@ -994,8 +984,30 @@ Alpine.data('merchApp', () => ({
         const name = String(p.name || '').toLowerCase();
         if (type.includes('usb') || name.includes('usb')) return 'usb';
         if (type.includes('tshirt') || type.includes('t-shirt')
-            || name.includes('t-shirt') || name.includes('tshirt') || name.includes('tee')) return 'tshirt';
+            || type.includes('sweat') || type.includes('hoodie') || type.includes('pull')
+            || name.includes('t-shirt') || name.includes('tshirt') || name.includes('tee')
+            || name.includes('sweat') || name.includes('hoodie') || name.includes('pull')) return 'tshirt';
         return type;
+    },
+
+    getTextileCustomizationLabel(product, field) {
+        const normalizedFields = String(product?.customization_fields || '')
+            .split(/[,;|]/)
+            .map(value => value.trim())
+            .filter(Boolean);
+        const normalizedField = field === 'prenom' ? 'prenom' : 'nom';
+        const configuredField = normalizedFields.find(value => {
+            const normalized = value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            return normalizedField === 'prenom'
+                ? normalized.includes('prenom')
+                : /\bnom\b/.test(normalized) && !normalized.includes('prenom');
+        });
+        const label = (configuredField || (field === 'prenom' ? 'Prénom' : 'Nom'))
+            .replace(/\s+à\s+marquer\s*$/i, '')
+            .trim();
+        const formattedLabel = label.charAt(0).toLocaleUpperCase('fr-FR')
+            + label.slice(1).toLocaleLowerCase('fr-FR');
+        return `${formattedLabel} à marquer *`;
     },
 
     toggleSearch() {
