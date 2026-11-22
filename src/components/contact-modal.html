@@ -10,8 +10,27 @@
             <div class="break-words space-y-2 text-xs font-mono">
                 <div class="p-3 bg-white pill-border">
                     <span class="block text-slate-500 font-sans text-[10px] uppercase font-bold">EMAIL</span>
-                    <a href="mailto:contact@acelspace.fr" class="font-bold text-slate-900 text-sm hover:underline">contact@acelspace.fr</a>
-                    <span class="block text-[11px] text-slate-500 font-sans font-medium mt-0.5">(ou <a href="mailto:acelspacfx@gmail.com" class="underline">acelspacfx@gmail.com</a>)</span>
+                    <div class="mt-1 flex flex-wrap items-center gap-2 font-sans">
+                        <span class="text-sm font-bold text-slate-900" x-text="contactEmail"></span>
+                        <button type="button" @click="copyContactEmail()"
+                            :aria-label="contactEmailCopied ? 'Adresse copiée' : 'Copier l’adresse e-mail'"
+                            class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 hover:text-slate-900">
+                            <template x-if="!contactEmailCopied">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                                    <rect x="8" y="8" width="12" height="12" rx="2" stroke-width="2"></rect>
+                                    <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke-width="2"></path>
+                                </svg>
+                            </template>
+                            <template x-if="contactEmailCopied">
+                                <svg class="h-3.5 w-3.5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                                    <path d="m5 12 4 4L19 6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                                </svg>
+                            </template>
+                            <span x-text="contactEmailCopied ? 'Copié !' : 'Copier'"></span>
+                        </button>
+                    </div>
+                    <p x-show="contactCopyError" x-text="contactCopyError" role="alert"
+                        class="mt-1 font-sans text-[10px] font-semibold text-red-800"></p>
                 </div>
                 <div class="p-3 bg-white pill-border">
                     <span class="block text-slate-500 font-sans text-[10px] uppercase font-bold">INSTAGRAM</span>

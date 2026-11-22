@@ -19,6 +19,10 @@ Alpine.data('merchApp', () => ({
     contactSubmitting: false,
     contactSuccess: '',
     contactError: '',
+    contactEmail: 'acelspacfx@gmail.com',
+    contactEmailCopied: false,
+    contactCopyError: '',
+    contactCopyTimer: null,
     contactTurnstileToken: '',
     isPrivacyModalOpen: false,
     isTrackingModalOpen: false,
@@ -193,6 +197,27 @@ Alpine.data('merchApp', () => ({
         this.trackingNotice = '';
         this.trackingSearched = false;
         this.isTrackingModalOpen = true;
+    },
+
+    async copyContactEmail() {
+        this.contactCopyError = '';
+        this.contactEmailCopied = false;
+        if (this.contactCopyTimer) clearTimeout(this.contactCopyTimer);
+        this.contactCopyTimer = null;
+
+        try {
+            await navigator.clipboard.writeText(this.contactEmail);
+        } catch (error) {
+            console.error('Erreur copie de l’adresse e-mail :', error);
+            this.contactCopyError = 'Impossible de copier l’adresse e-mail depuis ce navigateur.';
+            return;
+        }
+
+        this.contactEmailCopied = true;
+        this.contactCopyTimer = setTimeout(() => {
+            this.contactEmailCopied = false;
+            this.contactCopyTimer = null;
+        }, 2000);
     },
 
     async submitContact(event) {
