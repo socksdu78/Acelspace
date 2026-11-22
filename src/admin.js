@@ -124,7 +124,8 @@ Alpine.data('adminApp', () => ({
     },
 
     getOrderPersonalization(order) {
-        if (String(order?.produit || '').toLowerCase().includes('usb')) {
+        const productName = String(order?.produit || '').toLowerCase();
+        if (productName.includes('usb')) {
             const prenom = typeof order.usb_prenom === 'string' ? order.usb_prenom.trim() : '';
             const nom = typeof order.usb_nom === 'string' ? order.usb_nom.trim() : '';
             if (prenom && nom) return `${prenom} ${nom}`;
@@ -132,11 +133,23 @@ Alpine.data('adminApp', () => ({
             const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[GRAVURE USB\]\s*([^\r\n]+)/i);
             return legacyMatch?.[1]?.trim() || '';
         }
+        if (productName.includes('t-shirt') || productName.includes('tshirt') || productName.includes('tee')) {
+            if (Number(order.no_customization) === 1) return '';
+            const prenom = typeof order.tshirt_prenom === 'string' ? order.tshirt_prenom.trim() : '';
+            const nom = typeof order.tshirt_nom === 'string' ? order.tshirt_nom.trim() : '';
+            const taille = typeof order.tshirt_taille === 'string' ? order.tshirt_taille.trim() : '';
+            if (prenom && nom) return `${prenom} ${nom}${taille ? ` / taille ${taille}` : ''}`;
+            const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[MARQUAGE TSHIRT\]\s*([^\r\n]+)/i);
+            if (legacyMatch?.[1]) return legacyMatch[1].replace(/\s*\/\s*Taille:\s*/i, ' / taille ').trim();
+        }
         return this.hasPersonalization(order?.personnalisation) ? order.personnalisation.trim() : '';
     },
 
     getPersonalizationLabel(order) {
-        return String(order?.produit || '').toLowerCase().includes('usb') ? 'Gravure : ' : 'Perso : ';
+        const productName = String(order?.produit || '').toLowerCase();
+        if (productName.includes('usb')) return 'Gravure : ';
+        if (productName.includes('t-shirt') || productName.includes('tshirt') || productName.includes('tee')) return 'Marquage : ';
+        return 'Personnalisation : ';
     },
 
     async init() {

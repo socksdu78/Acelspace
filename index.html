@@ -508,7 +508,48 @@
                         </div>
                     </template>
 
-                    <template x-if="getProductType(activeProduct) !== 'usb' && Number(activeProduct.requires_customization) === 1">
+                    <template x-if="getProductType(activeProduct) === 'tshirt'">
+                        <div class="space-y-2">
+                            <template x-if="Number(activeProduct.requires_customization) === 1 && Number(activeProduct.allow_no_customization) === 1">
+                                <button type="button" @click="toggleProductCustomization()"
+                                    class="w-full px-3 py-2 bg-white pill-border text-[11px] font-black uppercase text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                                    x-text="noCustomization ? 'PERSONNALISER LE PRODUIT' : 'NE PAS PERSONNALISER'">
+                                </button>
+                            </template>
+                            <div x-show="!noCustomization" class="space-y-2">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    <div class="space-y-1">
+                                        <label for="tshirtPrenom" class="block text-[10px] font-black uppercase text-slate-600">Prénom à marquer *</label>
+                                        <input id="tshirtPrenom" type="text" x-model="productTshirtPrenom" maxlength="50"
+                                            :required="!noCustomization" placeholder="Charlotte"
+                                            @input="productPersonalisationError = ''"
+                                            class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                                    </div>
+                                    <div class="space-y-1">
+                                        <label for="tshirtNom" class="block text-[10px] font-black uppercase text-slate-600">Nom à marquer *</label>
+                                        <input id="tshirtNom" type="text" x-model="productTshirtNom" maxlength="50"
+                                            :required="!noCustomization" placeholder="DUPONT"
+                                            @input="productPersonalisationError = ''"
+                                            class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                                    </div>
+                                </div>
+                                <div class="space-y-1">
+                                    <label for="tshirtMarquageTaille" class="block text-[10px] font-black uppercase text-slate-600">Taille de marquage *</label>
+                                    <select id="tshirtMarquageTaille" x-model="productTshirtTaille" :required="!noCustomization"
+                                        class="w-full px-3 py-2 text-xs font-black bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer">
+                                        <option value="">Sélectionnez une taille</option>
+                                        <option>S</option><option>M</option><option>L</option>
+                                        <option>XL</option><option>2XL</option><option>3XL</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <p x-show="productPersonalisationError" x-cloak
+                                class="text-xs font-bold text-red-800"
+                                x-text="productPersonalisationError"></p>
+                        </div>
+                    </template>
+
+                    <template x-if="getProductType(activeProduct) !== 'usb' && getProductType(activeProduct) !== 'tshirt' && Number(activeProduct.requires_customization) === 1">
                         <div class="space-y-2">
                             <template x-if="Number(activeProduct.allow_no_customization) === 1">
                                 <button type="button" @click="toggleProductCustomization()"
@@ -521,6 +562,7 @@
                                     x-text="`Personnalisation requise (${activeProduct.customization_fields || 'Informations à personnaliser'}) *`"></label>
                                 <input id="productPersonalisation" type="text" x-model="productPersonalisation"
                                         @input="handleProductPersonalisationInput($event.target.value)" maxlength="100"
+                                    :required="!noCustomization"
                                     :placeholder="activeProduct.customization_fields || 'Informations à personnaliser'"
                                     class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
                             </div>
@@ -664,10 +706,8 @@
                                                 x-text="item.name"></h4>
                                             <p class="break-words text-[10px] font-bold text-slate-600"
                                                 x-text="`${item.taille || 'Taille unique'} • ${item.noCustomization ? 'Sans personnalisation' : (item.requiresCustomization ? 'Avec personnalisation' : 'Personnalisation non requise')}`"></p>
-                                            <p x-show="item.isUsb && item.engraving" class="break-words text-[10px] font-semibold text-slate-600"
-                                                x-text="`Gravure : ${item.engraving}`"></p>
-                                            <p x-show="!item.isUsb && item.personalization" class="break-words text-[10px] font-semibold text-slate-600"
-                                                x-text="`Personnalisation : ${item.personalization}`"></p>
+                                            <p x-show="item.personalizationText" class="break-words text-[10px] font-semibold text-slate-600"
+                                                x-text="`${item.personalizationLabel} : ${item.personalizationText}`"></p>
                                             <p class="text-[11px] font-bold text-slate-600"
                                                x-text="item.unitPrice !== null ? formatPrice(item.unitPrice) + ' / u.' : 'Prix indisponible'"></p>
                                         </div>
@@ -819,36 +859,6 @@
                                 <input type="tel" x-model="customerInfo.enfant_telephone" placeholder="06 12 34 56 78"
                                     class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- MARQUAGE T-SHIRT (si T-shirt dans le panier) -->
-                    <div x-show="cartHasTshirt" class="p-3.5 bg-white card-border space-y-3">
-                        <p class="text-[11px] font-black uppercase text-slate-900 tracking-wider border-b border-slate-200 pb-1.5">
-                            👕 Marquage T-shirt <span class="text-red-600">*</span>
-                        </p>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div class="space-y-1">
-                                <label class="block text-[10px] font-black uppercase text-slate-600">Prénom à marquer *</label>
-                                <input type="text" x-model="customerInfo.tshirt_prenom" placeholder="Charlotte"
-                                    :required="cartHasTshirt"
-                                    class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
-                            </div>
-                            <div class="space-y-1">
-                                <label class="block text-[10px] font-black uppercase text-slate-600">Nom à marquer *</label>
-                                <input type="text" x-model="customerInfo.tshirt_nom" placeholder="DUPONT"
-                                    :required="cartHasTshirt"
-                                    class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
-                            </div>
-                        </div>
-                        <div class="space-y-1">
-                            <label class="block text-[10px] font-black uppercase text-slate-600">Taille *</label>
-                            <select x-model="customerInfo.tshirt_taille" :required="cartHasTshirt"
-                                class="w-full px-3 py-2 text-xs font-black bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900 cursor-pointer">
-                                <option value="">Sélectionnez une taille</option>
-                                <option>S</option><option>M</option><option>L</option>
-                                <option>XL</option><option>2XL</option><option>3XL</option>
-                            </select>
                         </div>
                     </div>
 

@@ -84,7 +84,8 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
   - `allow_no_customization` (0 ou 1: autorise l'acheteur à cocher "Sans personnalisation").
 - Les accessoires sans taille vestimentaire utilisent toujours `sizes: ['Taille unique']`.
 - La fiche produit permet de consulter le visuel, basculer vers la seconde vue, ouvrir le guide des tailles en lightbox, sélectionner une taille, et cliquer sur **AJOUTER AU PANIER**.
-- Pour une clé USB, le prénom et le nom de gravure sont demandés sur la fiche produit et stockés sur la ligne correspondante du panier.
+- Toute personnalisation produit est saisie sur la fiche produit et stockée sur la ligne correspondante du panier.
+- Les clés USB demandent un prénom et un nom de gravure. Les T-shirts demandent le prénom, le nom et la taille de marquage.
 
 ---
 
@@ -99,8 +100,7 @@ Nom de marque officiel : **AcelSpace** (jamais "ACE SPACE"), dans tous les texte
   2. **Informations client** :
      - **Parent** : prénom et nom obligatoires (2 à 100 caractères), email valide obligatoire, téléphone obligatoire (8 à 15 chiffres).
      - **Enfant** : prénom et nom obligatoires, email et téléphone secondaires facultatifs.
-     - **Personnalisations spécifiques** : détection automatique des T-shirts (prénom + nom + taille de marquage). La gravure USB est saisie par article sur la fiche produit.
-     - **Personnalisation libre** : champ obligatoire si le panier contient un article personnalisé non exempté.
+     - Les personnalisations spécifiques et libres sont saisies par article sur la fiche produit ; aucune saisie de personnalisation produit n'est redemandée dans cette étape.
      - **Remarques** : champ libre pour précisions supplémentaires.
      - **Notification de baisse de prix** : case à cocher pour être alerté par email en cas d'atteinte d'un palier tarifaire inférieur.
      - **Consentement RGPD** : case à cocher obligatoire avec date enregistrée côté serveur.
