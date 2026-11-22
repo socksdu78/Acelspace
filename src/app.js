@@ -971,3 +971,16 @@ Alpine.data('merchApp', () => ({
 
 // ─── Démarrage Alpine ─────────────────────────────────────────────────────────
 Alpine.start();
+
+window.onTurnstileResolved = function(token) {
+  const el = document.querySelector("[x-data*=\"merchApp\"]");
+  if (el && el._x_dataStack && el._x_dataStack[0]) {
+    el._x_dataStack[0].turnstileToken = token;
+  }
+};
+window.onTurnstileExpired = function() {
+  const el = document.querySelector("[x-data*=\"merchApp\"]");
+  if (el && el._x_dataStack && el._x_dataStack[0]) {
+    el._x_dataStack[0].turnstileToken = "";
+  }
+};

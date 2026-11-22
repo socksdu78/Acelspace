@@ -266,13 +266,14 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             baseUri: ["'self'"],
-            connectSrc: ["'self'", 'https://www.google-analytics.com', 'https://region1.google-analytics.com', 'https://analytics.google.com'],
+            connectSrc: ["'self'", 'https://challenges.cloudflare.com', 'https://www.google-analytics.com', 'https://region1.google-analytics.com', 'https://analytics.google.com'],
             fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
             formAction: ["'self'"],
             frameAncestors: ["'none'"],
             imgSrc: ["'self'", 'data:', 'blob:', 'https://placehold.co', 'https://www.google-analytics.com'],
             objectSrc: ["'none'"],
-            scriptSrc: ["'self'", "'unsafe-eval'"],
+            scriptSrc: ["'self'", "'unsafe-eval'", 'https://challenges.cloudflare.com'],
+            frameSrc: ["'self'", 'https://challenges.cloudflare.com'],
             scriptSrcAttr: ["'none'"],
             styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
             upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
@@ -389,6 +390,7 @@ const trackingChallenges = new Map();
 const trackingLocks = new Map();
 const adminSessions = new Map();
 const ADMIN_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
+const isProd = process.env.NODE_ENV === 'production';
 const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 5 : 100, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' } });
 const uploadLimiter = rateLimit({ windowMs: 15*60*1000, max: isProd ? 60 : 500, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Trop de requêtes upload. Réessayez plus tard.' } });
 

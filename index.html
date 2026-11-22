@@ -892,7 +892,7 @@
                     <!-- Widget Turnstile anti-bot — résoudre avant soumission -->
                     <div class="pt-2 flex justify-center">
                         <div class="cf-turnstile"
-                             data-sitekey="1x00000000000000000000AA"
+                             data-sitekey="0x4AAAAAAGNfsCaXr7okaNwc"
                              data-callback="onTurnstileResolved"
                              data-expired-callback="onTurnstileExpired"
                              data-error-callback="onTurnstileExpired"
@@ -1232,23 +1232,6 @@
             Changer la vue
         </button>
     </div>
-
-    <!-- Callbacks globaux Cloudflare Turnstile — connectent le widget à l'état Alpine -->
-    <script>
-        window.onTurnstileResolved = function(token) {
-            // Injecte le jeton dans le composant Alpine merchApp
-            const el = document.querySelector('[x-data="merchApp"]');
-            if (el && el._x_dataStack && el._x_dataStack[0]) {
-                el._x_dataStack[0].turnstileToken = token;
-            }
-        };
-        window.onTurnstileExpired = function() {
-            const el = document.querySelector('[x-data="merchApp"]');
-            if (el && el._x_dataStack && el._x_dataStack[0]) {
-                el._x_dataStack[0].turnstileToken = '';
-            }
-        };
-    </script>
 
 </body>
 
