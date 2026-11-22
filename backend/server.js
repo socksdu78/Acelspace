@@ -683,7 +683,7 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
             }),
             transporter.sendMail({
                 from: `"AcelSpace Boutique" <${process.env.GMAIL_USER}>`,
-                to: process.env.CONTACT_EMAIL || process.env.GMAIL_USER || 'contact@acelspace.fr',
+                to: process.env.CONTACT_EMAIL || process.env.GMAIL_USER || 'acelspacfx@gmail.com',
                 subject: `Nouveau message de contact : ${nom} ${prenom}`,
                 text: `Nom : ${nom}\nPrénom : ${prenom}\nEmail de contact : ${email}\n\nMessage :\n${message}`
             })
