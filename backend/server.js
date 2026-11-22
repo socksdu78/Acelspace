@@ -57,6 +57,25 @@ function cleanPersonalization(value) {
     return cleaned && !['null', 'undefined'].includes(cleaned.toLowerCase()) ? cleaned : '';
 }
 
+function getUsbPersonalization(order) {
+    const usbPrenom = cleanPersonalization(order.usb_prenom);
+    const usbNom = cleanPersonalization(order.usb_nom);
+    if (usbPrenom && usbNom) return `${usbPrenom} ${usbNom}`;
+
+    const personalization = cleanPersonalization(order.personnalisation);
+    if (personalization) return personalization;
+
+    const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[GRAVURE USB\]\s*([^\r\n]+)/i);
+    return cleanPersonalization(legacyMatch?.[1]);
+}
+
+function getOptionalUsbColumnSelection(alias = 'p') {
+    const columns = new Set(db.pragma('table_info(precommandes)').map(column => column.name));
+    return ['usb_prenom', 'usb_nom'].map(column =>
+        columns.has(column) ? `${alias}.${column}` : `'' AS ${column}`
+    ).join(', ');
+}
+
 // ─── Nodemailer : transporter Gmail (configuré via .env)
 function createMailTransporter() {
     if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) return null;
@@ -95,13 +114,20 @@ async function sendConfirmationEmail({ to, commandeRef, parentNom, enfantNom, li
         const safeEnfantNom = escapeHtml(enfantNom);
         const safeCommandeRef = escapeHtml(commandeRef);
 
-        const lignesHtml = lignes.map(vl => `
+        const lignesHtml = lignes.map(vl => {
+            const isUsb = String(vl.product.name || '').toLowerCase().includes('usb');
+            const personalization = cleanPersonalization(vl.personnalisation);
+            return `
             <tr>
-                <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${escapeHtml(vl.product.name)}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">
+                    ${escapeHtml(vl.product.name)}
+                    ${personalization ? `<div style="font-size:10px;color:#475569;margin-top:3px">${isUsb ? 'Gravure' : 'Personnalisation'} : ${escapeHtml(personalization)}</div>` : ''}
+                </td>
                 <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center">${escapeHtml(vl.taille)}</td>
                 <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center">${vl.qty}</td>
                 <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${vl.linePrice.toFixed(2).replace('.', ',')} €</td>
-            </tr>`).join('');
+            </tr>`;
+        }).join('');
 
         const html = `
 <!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"></head>
@@ -881,7 +907,11 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
                 || (typeof item.product_id === 'string' && item.product_id.length > 60)
                 || (item.taille !== undefined && typeof item.taille !== 'string')
                 || (item.personalization !== undefined && item.personalization !== null
-                    && (typeof item.personalization !== 'string' || item.personalization.length > 100))
+                    && (typeof item.personalization !== 'string' || item.personalization.length > 101))
+                || (item.usb_prenom !== undefined
+                    && (typeof item.usb_prenom !== 'string' || item.usb_prenom.length > 50))
+                || (item.usb_nom !== undefined
+                    && (typeof item.usb_nom !== 'string' || item.usb_nom.length > 50))
                 || (item.noCustomization !== undefined && typeof item.noCustomization !== 'boolean')) {
                 return res.status(400).json({ success: false, message: 'Une ligne de précommande est invalide.' });
             }
@@ -904,19 +934,39 @@ app.post('/api/precommande', precommandeLimiter, async (req, res) => {
                 return res.status(400).json({ success: false, message: 'L’option sans personnalisation n’est pas disponible pour cet article.' });
             }
 
+            const isUsb = String(productInfo.name || '').toLowerCase().includes('usb');
+            if (isUsb && noCustomization) {
+                return res.status(400).json({ success: false, message: 'La gravure est obligatoire pour une clé USB.' });
+            }
             const isCustomizable = Number(productInfo.requires_customization) === 1;
+            if (!isUsb && typeof item.personalization === 'string' && item.personalization.length > 100) {
+                return res.status(400).json({ success: false, message: 'La personnalisation ne peut pas dépasser 100 caractères.' });
+            }
+            const hasLineUsbFields = item.usb_prenom !== undefined || item.usb_nom !== undefined;
+            const lineUsbPrenom = hasLineUsbFields ? item.usb_prenom : usb_prenom;
+            const lineUsbNom = hasLineUsbFields ? item.usb_nom : usb_nom;
+            if (isUsb && (
+                typeof lineUsbPrenom !== 'string' || !lineUsbPrenom.trim()
+                || typeof lineUsbNom !== 'string' || !lineUsbNom.trim()
+            )) {
+                return res.status(400).json({ success: false, message: 'Chaque clé USB doit avoir un prénom et un nom à graver.' });
+            }
+            const usbPersonalization = isUsb
+                ? `${lineUsbPrenom.trim()} ${lineUsbNom.trim()}`
+                : '';
             const itemPersonalization = item.personalization === undefined
                 ? cleanPersonalization(personnalisationClean)
                 : cleanPersonalization(item.personalization);
-            const linePersonalization = isCustomizable && !noCustomization
-                ? itemPersonalization
-                : '';
+            const linePersonalization = isUsb
+                ? usbPersonalization
+                : (isCustomizable && !noCustomization ? itemPersonalization : '');
 
             verifiedLines.push({
                 product: productInfo,
                 taille: cleanTaille,
                 noCustomization,
                 personnalisation: linePersonalization,
+                isUsb,
                 qty
             });
         }
@@ -1439,13 +1489,18 @@ app.get('/api/admin/precommandes', requireAdmin, (req, res) => {
         }
         query += ' ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC';
         const rawPrecommandes = db.prepare(query).all(...params);
-        const precommandes = rawPrecommandes.map(r => ({
-            ...r,
-            personnalisation: Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
-                ? cleanPersonalization(r.personnalisation)
-                : '',
-            client_id_formatted: formatClientId(r.client_id)
-        }));
+        const precommandes = rawPrecommandes.map(r => {
+            const isUsb = String(r.produit || '').toLowerCase().includes('usb');
+            return {
+                ...r,
+                personnalisation: isUsb
+                    ? getUsbPersonalization(r)
+                    : (Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
+                        ? cleanPersonalization(r.personnalisation)
+                        : ''),
+                client_id_formatted: formatClientId(r.client_id)
+            };
+        });
         const allRecords = db.prepare('SELECT client_id, produit, taille, statut, status, quantite, prix_estime, commande_ref FROM precommandes').all();
         const totalUQ = db.prepare('SELECT COUNT(DISTINCT client_id) as count FROM precommandes').get();
         const uniqueOrders = db.prepare('SELECT COUNT(DISTINCT COALESCE(commande_ref, id)) as count FROM precommandes').get();
@@ -1621,7 +1676,7 @@ app.delete('/api/admin/clients/:id', requireAdmin, (req, res) => {
 app.get('/api/admin/export', requireAdmin, (req, res) => {
     try {
         const rows = db.prepare("SELECT p.*, pr.requires_customization as product_requires_customization FROM precommandes p LEFT JOIN products pr ON pr.id = p.product_id WHERE COALESCE(UPPER(TRIM(p.status)), '') NOT IN ('ANNULE', 'ANNULÉ') ORDER BY p.date_creation DESC, p.commande_ref DESC, p.id ASC").all();
-        const headers = ['ID Ligne', 'Réf. Commande', 'Client ID', 'Date', 'Nom', 'Prénom enfant', 'Nom enfant', 'Email', 'Téléphone', 'Produit', 'Taille', 'Quantite', 'Prix Estime', 'Statut', 'Consentement RGPD', 'Date Consentement', 'Remarques', 'Personnalisation'];
+        const headers = ['ID Ligne', 'Réf. Commande', 'Client ID', 'Date', 'Nom', 'Prénom enfant', 'Nom enfant', 'Email', 'Téléphone', 'Produit', 'Taille', 'Quantite', 'Prix Estime', 'Statut', 'Consentement RGPD', 'Date Consentement', 'Remarques', 'Personnalisation / Gravure'];
         const csvLines = [headers.map(escapeCSV).join(';')];
         rows.forEach(r => {
             const date = r.date_creation ? new Date(r.date_creation).toLocaleString('fr-FR') : '';
@@ -1629,9 +1684,12 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
             const email = r.email || r.client_email || r.contact || '';
             const telephone = r.telephone || r.client_telephone || '';
             const refVal = r.commande_ref || ('CMD-' + r.id);
-            const personnalisation = Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
-                ? cleanPersonalization(r.personnalisation)
-                : '';
+            const isUsb = String(r.produit || '').toLowerCase().includes('usb');
+            const personnalisation = isUsb
+                ? getUsbPersonalization(r)
+                : (Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
+                    ? cleanPersonalization(r.personnalisation)
+                    : '');
             const status = r.status || r.statut || '';
             const remarques = String(r.remarques || '').split(/\r?\n/)
                 .map(line => line.trim())
@@ -1662,7 +1720,7 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
                 Number(r.consentement) === 1 ? 'Oui' : 'Non',
                 r.date_consentement || '',
                 remarques,
-                personnalisation,
+                personnalisation ? (isUsb ? `Gravure : ${personnalisation}` : personnalisation) : '',
             ].map(escapeCSV).join(';'));
         });
         const filename = 'precommandes-acelspace-' + new Date().toISOString().slice(0, 10) + '.csv';
@@ -1692,7 +1750,7 @@ app.get('/api/admin/export-recap', requireAdmin, (req, res) => {
 app.get('/api/admin/print-data', requireAdmin, (req, res) => {
     try {
         recalculateAllTierPrices();
-        let query = "SELECT p.id, p.client_id, p.nom, p.produit, p.taille, p.quantite, p.prix_estime, p.statut, p.status, p.date_creation, p.personnalisation, p.no_customization, p.student_first_name, p.student_last_name, pr.requires_customization as product_requires_customization, c.nom as client_nom FROM precommandes p LEFT JOIN clients c ON p.client_id = c.id LEFT JOIN products pr ON pr.id = p.product_id WHERE COALESCE(UPPER(TRIM(p.status)), '') NOT IN ('ANNULE', 'ANNULÉ')";
+        let query = `SELECT p.id, p.client_id, p.nom, p.produit, p.taille, p.quantite, p.prix_estime, p.statut, p.status, p.date_creation, p.personnalisation, p.remarques, ${getOptionalUsbColumnSelection()}, p.no_customization, p.student_first_name, p.student_last_name, pr.requires_customization as product_requires_customization, c.nom as client_nom FROM precommandes p LEFT JOIN clients c ON p.client_id = c.id LEFT JOIN products pr ON pr.id = p.product_id WHERE COALESCE(UPPER(TRIM(p.status)), '') NOT IN ('ANNULE', 'ANNULÉ')`;
         query += " AND COALESCE(LOWER(TRIM(p.statut)), '') != 'annulee'";
         query += ' ORDER BY COALESCE(c.nom, p.nom) ASC, p.date_creation ASC';
         const rows = db.prepare(query).all();
@@ -1705,11 +1763,14 @@ app.get('/api/admin/print-data', requireAdmin, (req, res) => {
             cd.total += Number(r.prix_estime) || 0;
             const studentName = [r.student_first_name, r.student_last_name].filter(Boolean).join(' ').trim();
             if (studentName) cd.children.add(studentName);
-            const personnalisation = Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
-                ? cleanPersonalization(r.personnalisation)
-                : '';
+            const isUsb = String(r.produit || '').toLowerCase().includes('usb');
+            const personnalisation = isUsb
+                ? getUsbPersonalization(r)
+                : (Number(r.product_requires_customization) === 1 && Number(r.no_customization) !== 1
+                    ? cleanPersonalization(r.personnalisation)
+                    : '');
             const itemKey = JSON.stringify([r.produit, r.taille || 'Taille unique', personnalisation]);
-            if (!cd.itemsMap.has(itemKey)) cd.itemsMap.set(itemKey, { produit: r.produit, taille: r.taille || 'Taille unique', personnalisation, quantite: 0 });
+            if (!cd.itemsMap.has(itemKey)) cd.itemsMap.set(itemKey, { produit: r.produit, taille: r.taille || 'Taille unique', personnalisation, isUsb, quantite: 0 });
             cd.itemsMap.get(itemKey).quantite += Number(r.quantite) || 0;
         });
         const persons = []; let grandTotal = 0;
@@ -1717,7 +1778,8 @@ app.get('/api/admin/print-data', requireAdmin, (req, res) => {
             const parts = [];
             for (const item of cd.itemsMap.values()) {
                 const hasSize = item.taille && item.taille !== 'Taille unique';
-                parts.push(item.produit + (hasSize ? ' ' + item.taille : '') + ' x' + item.quantite + (item.personnalisation ? ' — Perso : ' + item.personnalisation : ''));
+                const personalizationLabel = item.isUsb ? ' — Gravure : ' : ' — Perso : ';
+                parts.push(item.produit + (hasSize ? ' ' + item.taille : '') + ' x' + item.quantite + (item.personnalisation ? personalizationLabel + item.personnalisation : ''));
             }
             const t = Math.round(cd.total * 100) / 100;
             grandTotal += t;

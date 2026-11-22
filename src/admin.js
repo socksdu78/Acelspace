@@ -123,6 +123,22 @@ Alpine.data('adminApp', () => ({
         return normalized !== '' && normalized !== 'null' && normalized !== 'undefined';
     },
 
+    getOrderPersonalization(order) {
+        if (String(order?.produit || '').toLowerCase().includes('usb')) {
+            const prenom = typeof order.usb_prenom === 'string' ? order.usb_prenom.trim() : '';
+            const nom = typeof order.usb_nom === 'string' ? order.usb_nom.trim() : '';
+            if (prenom && nom) return `${prenom} ${nom}`;
+            if (this.hasPersonalization(order.personnalisation)) return order.personnalisation.trim();
+            const legacyMatch = String(order.remarques || '').match(/(?:^|\r?\n)\[GRAVURE USB\]\s*([^\r\n]+)/i);
+            return legacyMatch?.[1]?.trim() || '';
+        }
+        return this.hasPersonalization(order?.personnalisation) ? order.personnalisation.trim() : '';
+    },
+
+    getPersonalizationLabel(order) {
+        return String(order?.produit || '').toLowerCase().includes('usb') ? 'Gravure : ' : 'Perso : ';
+    },
+
     async init() {
         await Promise.all([this.checkAuth(), this.loadSiteLogo()]);
     },

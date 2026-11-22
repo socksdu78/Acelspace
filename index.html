@@ -484,7 +484,31 @@
                         </div>
                     </div>
 
-                    <template x-if="Number(activeProduct.requires_customization) === 1">
+                    <template x-if="getProductType(activeProduct) === 'usb'">
+                        <div class="space-y-2">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <div class="space-y-1">
+                                    <label for="usbGravurePrenom" class="block text-[10px] font-black uppercase text-slate-600">Prénom à graver *</label>
+                                    <input id="usbGravurePrenom" type="text" x-model="productUsbPrenom" maxlength="50" required
+                                        placeholder="Charlotte"
+                                        @input="productPersonalisationError = ''"
+                                        class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                                </div>
+                                <div class="space-y-1">
+                                    <label for="usbGravureNom" class="block text-[10px] font-black uppercase text-slate-600">Nom à graver *</label>
+                                    <input id="usbGravureNom" type="text" x-model="productUsbNom" maxlength="50" required
+                                        placeholder="DUPONT"
+                                        @input="productPersonalisationError = ''"
+                                        class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
+                                </div>
+                            </div>
+                            <p x-show="productPersonalisationError" x-cloak
+                                class="text-xs font-bold text-red-800"
+                                x-text="productPersonalisationError"></p>
+                        </div>
+                    </template>
+
+                    <template x-if="getProductType(activeProduct) !== 'usb' && Number(activeProduct.requires_customization) === 1">
                         <div class="space-y-2">
                             <template x-if="Number(activeProduct.allow_no_customization) === 1">
                                 <button type="button" @click="toggleProductCustomization()"
@@ -640,7 +664,9 @@
                                                 x-text="item.name"></h4>
                                             <p class="break-words text-[10px] font-bold text-slate-600"
                                                 x-text="`${item.taille || 'Taille unique'} • ${item.noCustomization ? 'Sans personnalisation' : (item.requiresCustomization ? 'Avec personnalisation' : 'Personnalisation non requise')}`"></p>
-                                            <p x-show="item.personalization" class="break-words text-[10px] font-semibold text-slate-600"
+                                            <p x-show="item.isUsb && item.engraving" class="break-words text-[10px] font-semibold text-slate-600"
+                                                x-text="`Gravure : ${item.engraving}`"></p>
+                                            <p x-show="!item.isUsb && item.personalization" class="break-words text-[10px] font-semibold text-slate-600"
                                                 x-text="`Personnalisation : ${item.personalization}`"></p>
                                             <p class="text-[11px] font-bold text-slate-600"
                                                x-text="item.unitPrice !== null ? formatPrice(item.unitPrice) + ' / u.' : 'Prix indisponible'"></p>
@@ -791,27 +817,6 @@
                             <div class="space-y-1">
                                 <label class="block text-[10px] font-black uppercase text-slate-600">Téléphone <span class="font-normal text-slate-400">(conseillé)</span></label>
                                 <input type="tel" x-model="customerInfo.enfant_telephone" placeholder="06 12 34 56 78"
-                                    class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- GRAVURE USB (si USB dans le panier) -->
-                    <div x-show="cartHasUsb" class="p-3.5 bg-white card-border space-y-3">
-                        <p class="text-[11px] font-black uppercase text-slate-900 tracking-wider border-b border-slate-200 pb-1.5">
-                            🔌 Gravure USB <span class="text-red-600">*</span>
-                        </p>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div class="space-y-1">
-                                <label class="block text-[10px] font-black uppercase text-slate-600">Prénom à graver *</label>
-                                <input type="text" x-model="customerInfo.usb_prenom" placeholder="Charlotte"
-                                    :required="cartHasUsb"
-                                    class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
-                            </div>
-                            <div class="space-y-1">
-                                <label class="block text-[10px] font-black uppercase text-slate-600">Nom à graver *</label>
-                                <input type="text" x-model="customerInfo.usb_nom" placeholder="DUPONT"
-                                    :required="cartHasUsb"
                                     class="w-full px-3 py-2 text-xs font-semibold bg-white pill-border focus:outline-none focus:ring-2 focus:ring-slate-900">
                             </div>
                         </div>

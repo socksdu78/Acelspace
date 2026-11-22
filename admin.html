@@ -438,9 +438,9 @@
                                                 </td>
                                                 <td class="px-2 py-2 font-bold text-slate-900 whitespace-nowrap">
                                                     <div x-text="order.produit"></div>
-                                                    <template x-if="hasPersonalization(order.personnalisation)">
+                                                    <template x-if="hasPersonalization(getOrderPersonalization(order))">
                                                         <div class="text-[10px] text-amber-900 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-300 mt-1 inline-block"
-                                                            x-text="'Perso : ' + order.personnalisation"></div>
+                                                            x-text="getPersonalizationLabel(order) + getOrderPersonalization(order)"></div>
                                                     </template>
                                                 </td>
                                                 <td class="px-2 py-2 text-center whitespace-nowrap"><span
